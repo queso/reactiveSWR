@@ -1,0 +1,559 @@
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import { useSWRConfig } from 'swr'
+import type {
+  EventMapping,
+  ParsedEvent,
+  ReconnectConfig,
+  SSEConfig,
+  SSEStatus,
+} from './types.ts'
+
+/**
+ * Default reconnection configuration values
+ */
+const DEFAULT_RECONNECT: Required<ReconnectConfig> = {
+  enabled: true,
+  initialDelay: 1000,
+  maxDelay: 30000,
+  backoffMultiplier: 2,
+  maxAttempts: Number.POSITIVE_INFINITY,
+}
+
+/**
+ * Calculate the delay for the next reconnection attempt using exponential backoff.
+ * Formula: min(initialDelay * (backoffMultiplier ^ attemptNumber), maxDelay)
+ */
+function calculateBackoffDelay(
+  attemptNumber: number,
+  config: Required<ReconnectConfig>,
+): number {
+  const delay = config.initialDelay * config.backoffMultiplier ** attemptNumber
+  return Math.min(delay, config.maxDelay)
+}
+
+interface SSEContextValue {
+  status: SSEStatus
+  subscribe: (
+    eventType: string,
+    handler: (payload: unknown) => void,
+  ) => () => void
+  config: SSEConfig
+}
+
+const SSEContext = createContext<SSEContextValue | undefined>(undefined)
+
+/**
+ * Default parser for SSE events.
+ * Expects JSON format: { type: string, payload: unknown }
+ */
+function defaultParseEvent(event: MessageEvent): ParsedEvent {
+  const data = JSON.parse(event.data)
+  return {
+    type: data.type,
+    payload: data.payload,
+  }
+}
+
+/**
+ * Parser for named SSE events where the type is known from the event name.
+ * Parses event.data as JSON and uses it directly as payload.
+ */
+function parseNamedEvent(eventType: string, event: MessageEvent): ParsedEvent {
+  const payload = JSON.parse(event.data)
+  return {
+    type: eventType,
+    payload,
+  }
+}
+
+/**
+ * Get a human-readable name for the update strategy (for debug logging)
+ */
+function getStrategyName(strategy: EventMapping['update']): string {
+  if (strategy === 'set' || strategy === undefined) {
+    return 'set'
+  }
+  if (strategy === 'refetch') {
+    return 'refetch'
+  }
+  return 'function'
+}
+
+/**
+ * Apply an update strategy to the SWR cache for a given key.
+ * Handles set, refetch, and custom function strategies.
+ */
+function applyUpdateStrategy(
+  mutate: (
+    key: string,
+    data?: unknown | ((current: unknown) => unknown),
+    options?: { revalidate?: boolean },
+  ) => Promise<unknown>,
+  key: string,
+  mapping: EventMapping,
+  payload: unknown,
+  debug?: boolean,
+): void {
+  const strategy = mapping.update ?? 'set'
+
+  if (debug) {
+    console.debug(
+      `[reactiveSWR] Cache mutation: { key: "${key}", strategy: "${getStrategyName(strategy)}" }`,
+    )
+  }
+
+  if (strategy === 'set') {
+    mutate(key, payload, { revalidate: false })
+  } else if (strategy === 'refetch') {
+    mutate(key, undefined, { revalidate: true })
+  } else if (typeof strategy === 'function') {
+    mutate(key, (current: unknown) => strategy(current, payload), {
+      revalidate: false,
+    })
+  }
+}
+
+/**
+ * Resolve keys from an EventMapping, which can be a static string,
+ * an array of strings, or a function that returns one or more keys.
+ */
+function resolveKeys(
+  keyConfig: EventMapping['key'],
+  payload: unknown,
+): string[] {
+  if (typeof keyConfig === 'function') {
+    const result = keyConfig(payload)
+    return Array.isArray(result) ? result : [result]
+  }
+  return Array.isArray(keyConfig) ? keyConfig : [keyConfig]
+}
+
+export function SSEProvider({
+  config,
+  children,
+}: {
+  config: SSEConfig
+  children?: ReactNode
+}) {
+  const { mutate } = useSWRConfig()
+
+  const subscribersRef = useRef(
+    new Map<string, Set<(payload: unknown) => void>>(),
+  )
+
+  // Store config in ref to access latest values in handlers
+  const configRef = useRef(config)
+  configRef.current = config
+
+  // Use a stable status object that is mutated in place for SSR compatibility
+  // This allows tests using renderToString to observe status changes
+  const statusRef = useRef<SSEStatus>({
+    connected: false,
+    connecting: true,
+    error: null,
+    reconnectAttempt: 0,
+  })
+  const status = statusRef.current
+
+  // Force re-render when status changes (for client-side React updates)
+  const [, forceUpdate] = useState(0)
+
+  /**
+   * Update status by mutating the stable status object and triggering re-render
+   */
+  const updateStatus = useCallback(
+    (
+      updater: Partial<SSEStatus> | ((prev: SSEStatus) => Partial<SSEStatus>),
+    ) => {
+      const updates =
+        typeof updater === 'function' ? updater(statusRef.current) : updater
+      Object.assign(statusRef.current, updates)
+      forceUpdate((n) => n + 1)
+    },
+    [],
+  )
+
+  // EventSource and listeners refs for cleanup
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const listenersRef = useRef<
+    Array<{ type: string; handler: (event: MessageEvent) => void }>
+  >([])
+
+  // Track the URL used for the current EventSource connection
+  const currentUrlRef = useRef<string | null>(null)
+
+  // Reconnection state tracking
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const attemptCountRef = useRef<number>(0)
+
+  const subscribe = useCallback(
+    (eventType: string, handler: (payload: unknown) => void) => {
+      const subscribers = subscribersRef.current
+      if (!subscribers.has(eventType)) {
+        subscribers.set(eventType, new Set())
+      }
+
+      const handlers = subscribers.get(eventType)
+      if (handlers) {
+        handlers.add(handler)
+      }
+
+      return () => {
+        const handlers = subscribers.get(eventType)
+        if (handlers) {
+          handlers.delete(handler)
+          if (handlers.size === 0) {
+            subscribers.delete(eventType)
+          }
+        }
+      }
+    },
+    [],
+  )
+
+  /**
+   * Notify all subscribers for a given event type
+   */
+  const notifySubscribers = useCallback(
+    (eventType: string, payload: unknown) => {
+      const handlers = subscribersRef.current.get(eventType)
+      if (handlers) {
+        for (const handler of handlers) {
+          handler(payload)
+        }
+      }
+    },
+    [],
+  )
+
+  /**
+   * Process a parsed event by notifying subscribers and applying update strategies
+   */
+  const processEvent = useCallback(
+    (parsed: ParsedEvent) => {
+      const debug = configRef.current.debug
+
+      // Log received event in debug mode
+      if (debug) {
+        console.debug(
+          `[reactiveSWR] Event received: { type: "${parsed.type}", payload: ${JSON.stringify(parsed.payload)} }`,
+        )
+      }
+
+      // Notify all manual subscribers first
+      notifySubscribers(parsed.type, parsed.payload)
+
+      // Look up the event mapping in config
+      const mapping = configRef.current.events[parsed.type]
+      if (!mapping) {
+        // Log unhandled event in debug mode
+        if (debug) {
+          console.debug(`[reactiveSWR] Unhandled event type: "${parsed.type}"`)
+        }
+        return
+      }
+
+      try {
+        // Apply filter (on raw payload) - skip if returns false
+        if (mapping.filter && !mapping.filter(parsed.payload)) {
+          return
+        }
+
+        // Apply transform (if defined) to get the processed payload
+        const processedPayload = mapping.transform
+          ? mapping.transform(parsed.payload)
+          : parsed.payload
+
+        // Resolve the key(s) using the processed payload
+        const keys = resolveKeys(mapping.key, processedPayload)
+
+        // Apply update strategy for each key
+        for (const key of keys) {
+          applyUpdateStrategy(mutate, key, mapping, processedPayload, debug)
+        }
+      } catch (error) {
+        // Call onEventError callback if provided
+        configRef.current.onEventError?.(parsed, error)
+      }
+    },
+    [notifySubscribers, mutate],
+  )
+
+  /**
+   * Get the resolved reconnection config with defaults applied
+   */
+  const getReconnectConfig = useCallback((): Required<ReconnectConfig> => {
+    const userConfig = configRef.current.reconnect ?? {}
+    return {
+      enabled: userConfig.enabled ?? DEFAULT_RECONNECT.enabled,
+      initialDelay: userConfig.initialDelay ?? DEFAULT_RECONNECT.initialDelay,
+      maxDelay: userConfig.maxDelay ?? DEFAULT_RECONNECT.maxDelay,
+      backoffMultiplier:
+        userConfig.backoffMultiplier ?? DEFAULT_RECONNECT.backoffMultiplier,
+      maxAttempts: userConfig.maxAttempts ?? DEFAULT_RECONNECT.maxAttempts,
+    }
+  }, [])
+
+  /**
+   * Create and configure a new EventSource connection
+   */
+  const createEventSource = useCallback(() => {
+    // Clean up any existing connection
+    if (eventSourceRef.current) {
+      const oldEventSource = eventSourceRef.current
+      for (const { type, handler } of listenersRef.current) {
+        oldEventSource.removeEventListener(type, handler)
+      }
+      listenersRef.current = []
+      oldEventSource.close()
+    }
+
+    const url = configRef.current.url
+    const eventSource = new EventSource(url)
+    eventSourceRef.current = eventSource
+    currentUrlRef.current = url
+
+    // Handle connection open
+    eventSource.onopen = () => {
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+
+      // Reset attempt count on successful connection
+      attemptCountRef.current = 0
+
+      updateStatus({
+        connected: true,
+        connecting: false,
+        error: null,
+        reconnectAttempt: 0,
+      })
+      configRef.current.onConnect?.()
+    }
+
+    // Handle connection error
+    eventSource.onerror = (event: Event) => {
+      updateStatus({
+        error: new Error('EventSource connection error'),
+      })
+      configRef.current.onError?.(event)
+
+      // Check if connection was closed
+      if (eventSource.readyState === EventSource.CLOSED) {
+        updateStatus({
+          connected: false,
+        })
+        configRef.current.onDisconnect?.()
+
+        // Schedule reconnection
+        const reconnectConfig = getReconnectConfig()
+
+        // Check if reconnection is enabled
+        if (reconnectConfig.enabled === false) {
+          return
+        }
+
+        // Check if we've exceeded max attempts
+        const currentAttempt = attemptCountRef.current
+        if (currentAttempt + 1 >= reconnectConfig.maxAttempts) {
+          return
+        }
+
+        // Calculate backoff delay
+        const delay = calculateBackoffDelay(currentAttempt, reconnectConfig)
+
+        // Schedule the reconnection
+        reconnectTimeoutRef.current = setTimeout(() => {
+          attemptCountRef.current += 1
+          updateStatus({
+            connecting: true,
+            reconnectAttempt: attemptCountRef.current,
+          })
+          createEventSource()
+        }, delay)
+      }
+    }
+
+    // Handle generic messages (unnamed events)
+    eventSource.onmessage = (event: MessageEvent) => {
+      try {
+        const parseEvent = configRef.current.parseEvent ?? defaultParseEvent
+        const parsed = parseEvent(event)
+        processEvent(parsed)
+      } catch (error) {
+        if (configRef.current.debug) {
+          console.debug('[reactiveSWR] Failed to parse event:', error)
+        }
+        configRef.current.onEventError?.(
+          { type: 'parse_error', payload: event.data },
+          error as Error,
+        )
+      }
+    }
+
+    // Register listeners for each named event type in config.events
+    const eventTypes = Object.keys(configRef.current.events)
+    for (const eventType of eventTypes) {
+      const handler = (event: MessageEvent) => {
+        try {
+          let parsed: ParsedEvent
+          if (configRef.current.parseEvent) {
+            // Use custom parser if provided
+            parsed = configRef.current.parseEvent(event)
+          } else {
+            // Default: parse data as JSON for payload, use eventType as type
+            parsed = parseNamedEvent(eventType, event)
+          }
+          processEvent(parsed)
+        } catch (error) {
+          if (configRef.current.debug) {
+            console.debug('[reactiveSWR] Failed to parse event:', error)
+          }
+          configRef.current.onEventError?.(
+            { type: 'parse_error', payload: event.data },
+            error as Error,
+          )
+        }
+      }
+
+      eventSource.addEventListener(eventType, handler)
+      listenersRef.current.push({ type: eventType, handler })
+    }
+  }, [getReconnectConfig, processEvent, updateStatus])
+
+  // Initialize EventSource synchronously (for SSR compatibility)
+  // Also handle URL changes by creating a new connection when URL differs
+  const urlChanged =
+    currentUrlRef.current !== null && currentUrlRef.current !== config.url
+  if (typeof EventSource !== 'undefined') {
+    if (eventSourceRef.current === null || urlChanged) {
+      createEventSource()
+    }
+  }
+
+  // Track visibility change handler for cleanup
+  const visibilityHandlerRef = useRef<(() => void) | null>(null)
+
+  // Create visibility handler if not already created
+  if (
+    visibilityHandlerRef.current === null &&
+    typeof document !== 'undefined'
+  ) {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const eventSource = eventSourceRef.current
+        const reconnectConfig = getReconnectConfig()
+
+        // Check if reconnection is enabled
+        if (!reconnectConfig.enabled) {
+          return
+        }
+
+        // Check if we've exceeded max attempts (use +1 since we will increment before creating connection)
+        if (attemptCountRef.current + 1 >= reconnectConfig.maxAttempts) {
+          return
+        }
+
+        // Check if connection is lost (closed or no connection)
+        const isConnectionLost =
+          !eventSource || eventSource.readyState === EventSource.CLOSED
+
+        if (isConnectionLost) {
+          // Cancel any pending reconnect timer to avoid duplicate connections
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current)
+            reconnectTimeoutRef.current = null
+          }
+
+          // Trigger immediate reconnection
+          attemptCountRef.current += 1
+          updateStatus({
+            connecting: true,
+            reconnectAttempt: attemptCountRef.current,
+          })
+          createEventSource()
+        }
+      }
+    }
+
+    visibilityHandlerRef.current = handleVisibilityChange
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
+  // Cleanup visibility listener on unmount
+  useEffect(() => {
+    const handler = visibilityHandlerRef.current
+
+    return () => {
+      if (handler) {
+        document.removeEventListener('visibilitychange', handler)
+        visibilityHandlerRef.current = null
+      }
+    }
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    const eventSource = eventSourceRef.current
+    const listeners = listenersRef.current
+
+    return () => {
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+
+      if (eventSource) {
+        // Check if already closed (onerror may have already called onDisconnect)
+        const wasConnected = eventSource.readyState !== EventSource.CLOSED
+
+        // Remove all named event listeners
+        for (const { type, handler } of listeners) {
+          eventSource.removeEventListener(type, handler)
+        }
+        listenersRef.current = []
+
+        // Close the EventSource connection
+        eventSource.close()
+        eventSourceRef.current = null
+
+        // Only call onDisconnect if we were still connected
+        // (prevents double-call if onerror already called it)
+        if (wasConnected) {
+          configRef.current.onDisconnect?.()
+        }
+      }
+    }
+  }, [])
+
+  const contextValue: SSEContextValue = {
+    status,
+    subscribe,
+    config,
+  }
+
+  return (
+    <SSEContext.Provider value={contextValue}>{children}</SSEContext.Provider>
+  )
+}
+
+export function useSSEContext(): SSEContextValue {
+  const context = useContext(SSEContext)
+
+  if (context === undefined) {
+    throw new Error('useSSEContext must be used within an SSEProvider')
+  }
+
+  return context
+}

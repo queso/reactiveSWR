@@ -8,36 +8,16 @@ import {
   useState,
 } from 'react'
 import { useSWRConfig } from 'swr'
+import { createFetchTransport } from './fetchTransport.ts'
+import { calculateBackoffDelay, DEFAULT_RECONNECT } from './reconnect.ts'
 import type {
   EventMapping,
   ParsedEvent,
   ReconnectConfig,
   SSEConfig,
   SSEStatus,
+  SSETransport,
 } from './types.ts'
-
-/**
- * Default reconnection configuration values
- */
-const DEFAULT_RECONNECT: Required<ReconnectConfig> = {
-  enabled: true,
-  initialDelay: 1000,
-  maxDelay: 30000,
-  backoffMultiplier: 2,
-  maxAttempts: Number.POSITIVE_INFINITY,
-}
-
-/**
- * Calculate the delay for the next reconnection attempt using exponential backoff.
- * Formula: min(initialDelay * (backoffMultiplier ^ attemptNumber), maxDelay)
- */
-function calculateBackoffDelay(
-  attemptNumber: number,
-  config: Required<ReconnectConfig>,
-): number {
-  const delay = config.initialDelay * config.backoffMultiplier ** attemptNumber
-  return Math.min(delay, config.maxDelay)
-}
 
 interface SSEContextValue {
   status: SSEStatus
@@ -181,8 +161,8 @@ export function SSEProvider({
     [],
   )
 
-  // EventSource and listeners refs for cleanup
-  const eventSourceRef = useRef<EventSource | null>(null)
+  // EventSource/transport and listeners refs for cleanup
+  const eventSourceRef = useRef<SSETransport | EventSource | null>(null)
   const listenersRef = useRef<
     Array<{ type: string; handler: (event: MessageEvent) => void }>
   >([])
@@ -302,27 +282,71 @@ export function SSEProvider({
     }
   }, [])
 
+  // readyState constant for CLOSED (works for both EventSource and SSETransport)
+  const CLOSED = 2
+
   /**
-   * Create and configure a new EventSource connection
+   * Determine whether the config requires a non-EventSource transport
    */
-  const createEventSource = useCallback(() => {
+  const needsFetchTransport = useCallback((cfg: SSEConfig): boolean => {
+    return !!(cfg.method || cfg.body || cfg.headers)
+  }, [])
+
+  /**
+   * Create a transport based on the current config.
+   * Priority: config.transport factory > fetch transport (method/body/headers) > EventSource
+   */
+  const createTransport = useCallback(
+    (url: string): SSETransport | EventSource => {
+      const cfg = configRef.current
+      if (cfg.transport) {
+        return cfg.transport(url)
+      }
+      if (needsFetchTransport(cfg)) {
+        return createFetchTransport(url, {
+          method: cfg.method,
+          body: cfg.body,
+          headers: cfg.headers,
+        })
+      }
+      return new EventSource(url)
+    },
+    [needsFetchTransport],
+  )
+
+  /**
+   * Create and configure a new connection (EventSource or transport)
+   */
+  const createConnection = useCallback(() => {
     // Clean up any existing connection
     if (eventSourceRef.current) {
-      const oldEventSource = eventSourceRef.current
+      const oldConnection = eventSourceRef.current
       for (const { type, handler } of listenersRef.current) {
-        oldEventSource.removeEventListener(type, handler)
+        oldConnection.removeEventListener(type, handler)
       }
       listenersRef.current = []
-      oldEventSource.close()
+      oldConnection.close()
     }
 
     const url = configRef.current.url
-    const eventSource = new EventSource(url)
-    eventSourceRef.current = eventSource
+
+    // Create the transport, catching errors from custom factories
+    let connection: SSETransport | EventSource
+    try {
+      connection = createTransport(url)
+    } catch (error) {
+      configRef.current.onEventError?.(
+        { type: 'transport_error', payload: null },
+        error,
+      )
+      return
+    }
+
+    eventSourceRef.current = connection
     currentUrlRef.current = url
 
     // Handle connection open
-    eventSource.onopen = () => {
+    connection.onopen = () => {
       // Clear any pending reconnect timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
@@ -342,14 +366,14 @@ export function SSEProvider({
     }
 
     // Handle connection error
-    eventSource.onerror = (event: Event) => {
+    connection.onerror = (event: Event) => {
       updateStatus({
         error: new Error('EventSource connection error'),
       })
       configRef.current.onError?.(event)
 
       // Check if connection was closed
-      if (eventSource.readyState === EventSource.CLOSED) {
+      if (connection.readyState === CLOSED) {
         updateStatus({
           connected: false,
         })
@@ -379,13 +403,13 @@ export function SSEProvider({
             connecting: true,
             reconnectAttempt: attemptCountRef.current,
           })
-          createEventSource()
+          createConnection()
         }, delay)
       }
     }
 
     // Handle generic messages (unnamed events)
-    eventSource.onmessage = (event: MessageEvent) => {
+    connection.onmessage = (event: MessageEvent) => {
       try {
         const parseEvent = configRef.current.parseEvent ?? defaultParseEvent
         const parsed = parseEvent(event)
@@ -426,18 +450,20 @@ export function SSEProvider({
         }
       }
 
-      eventSource.addEventListener(eventType, handler)
+      connection.addEventListener(eventType, handler)
       listenersRef.current.push({ type: eventType, handler })
     }
-  }, [getReconnectConfig, processEvent, updateStatus])
+  }, [createTransport, getReconnectConfig, processEvent, updateStatus])
 
-  // Initialize EventSource synchronously (for SSR compatibility)
+  // Initialize connection synchronously (for SSR compatibility)
   // Also handle URL changes by creating a new connection when URL differs
   const urlChanged =
     currentUrlRef.current !== null && currentUrlRef.current !== config.url
-  if (typeof EventSource !== 'undefined') {
+  // Create connection if: custom transport or fetch transport is configured, OR EventSource is available
+  const hasCustomTransport = !!(config.transport || needsFetchTransport(config))
+  if (hasCustomTransport || typeof EventSource !== 'undefined') {
     if (eventSourceRef.current === null || urlChanged) {
-      createEventSource()
+      createConnection()
     }
   }
 
@@ -451,7 +477,7 @@ export function SSEProvider({
   ) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        const eventSource = eventSourceRef.current
+        const connection = eventSourceRef.current
         const reconnectConfig = getReconnectConfig()
 
         // Check if reconnection is enabled
@@ -465,8 +491,7 @@ export function SSEProvider({
         }
 
         // Check if connection is lost (closed or no connection)
-        const isConnectionLost =
-          !eventSource || eventSource.readyState === EventSource.CLOSED
+        const isConnectionLost = !connection || connection.readyState === CLOSED
 
         if (isConnectionLost) {
           // Cancel any pending reconnect timer to avoid duplicate connections
@@ -481,7 +506,7 @@ export function SSEProvider({
             connecting: true,
             reconnectAttempt: attemptCountRef.current,
           })
-          createEventSource()
+          createConnection()
         }
       }
     }
@@ -504,7 +529,7 @@ export function SSEProvider({
 
   // Cleanup on unmount
   useEffect(() => {
-    const eventSource = eventSourceRef.current
+    const connection = eventSourceRef.current
     const listeners = listenersRef.current
 
     return () => {
@@ -514,18 +539,18 @@ export function SSEProvider({
         reconnectTimeoutRef.current = null
       }
 
-      if (eventSource) {
+      if (connection) {
         // Check if already closed (onerror may have already called onDisconnect)
-        const wasConnected = eventSource.readyState !== EventSource.CLOSED
+        const wasConnected = connection.readyState !== CLOSED
 
         // Remove all named event listeners
         for (const { type, handler } of listeners) {
-          eventSource.removeEventListener(type, handler)
+          connection.removeEventListener(type, handler)
         }
         listenersRef.current = []
 
-        // Close the EventSource connection
-        eventSource.close()
+        // Close the connection
+        connection.close()
         eventSourceRef.current = null
 
         // Only call onDisconnect if we were still connected

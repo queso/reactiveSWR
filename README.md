@@ -144,6 +144,96 @@ events: {
 }
 ```
 
+### POST SSE and Custom Transports
+
+By default, reactiveSWR uses the browser's `EventSource` API, which only supports GET requests. The transport abstraction lets you connect to SSE endpoints that require POST requests, custom headers, or entirely custom connection logic.
+
+#### POST with JSON body
+
+```typescript
+import { useSSEStream } from 'reactive-swr'
+
+function AIChat({ question }: { question: string }) {
+  const { data, error } = useSSEStream<string>('/api/chat', {
+    method: 'POST',
+    body: { question, model: 'gpt-4' },
+  })
+
+  return <div>{data}</div>
+}
+```
+
+Plain objects passed as `body` are automatically JSON-serialized with `Content-Type: application/json`. If you provide a `body` without a `method`, it defaults to POST.
+
+#### Custom headers (authenticated SSE)
+
+```typescript
+const { data } = useSSEStream('/api/events', {
+  headers: { Authorization: `Bearer ${token}` },
+})
+```
+
+Providing `headers` (or `method` or `body`) automatically switches from `EventSource` to the fetch-based transport.
+
+#### Custom transport factory
+
+For full control, provide a `transport` factory that returns an `SSETransport`-compatible object:
+
+```typescript
+import type { SSETransport } from 'reactive-swr'
+
+const { data } = useSSEStream('/api/events', {
+  transport: (url) => createMyCustomTransport(url),
+})
+```
+
+#### SSEProvider with transport options
+
+The same transport options are available in `SSEConfig`:
+
+```typescript
+const config: SSEConfig = {
+  url: '/api/events',
+  method: 'POST',
+  body: { subscribe: ['orders', 'users'] },
+  headers: { Authorization: `Bearer ${token}` },
+  events: {
+    'order:updated': {
+      key: (p) => `/api/orders/${p.id}`,
+      update: 'set',
+    },
+  },
+}
+
+// Or with a custom transport factory:
+const config: SSEConfig = {
+  url: '/api/events',
+  transport: (url) => createMyCustomTransport(url),
+  events: { /* ... */ },
+}
+```
+
+### SSE Parser
+
+For advanced users building custom transports, the SSE wire format parser is available as a standalone export:
+
+```typescript
+import { createSSEParser } from 'reactive-swr'
+
+const parser = createSSEParser({
+  onEvent(event) {
+    console.log(event.event, event.data, event.id)
+  },
+  onRetry(ms) {
+    console.log('Server requested retry interval:', ms)
+  },
+})
+
+// Feed raw SSE text (handles chunked input)
+parser.feed('data: {"hello":"world"}\n\n')
+parser.feed('event: update\ndata: {"id":1}\n\n')
+```
+
 ### Reconnection
 
 Automatic reconnection with exponential backoff:
@@ -252,6 +342,16 @@ function LivePrice({ symbol }: { symbol: string }) {
 }
 ```
 
+#### Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `transform` | `(data: unknown) => T` | Transform incoming data before storing |
+| `method` | `string` | HTTP method (defaults to POST when body is provided) |
+| `body` | `BodyInit \| Record<string, unknown>` | Request body (triggers fetch-based transport) |
+| `headers` | `Record<string, string>` | Additional request headers (triggers fetch-based transport) |
+| `transport` | `(url: string) => SSETransport` | Custom transport factory (takes precedence over all other options) |
+
 ## Testing
 
 The library provides `mockSSE` for testing components with SSE:
@@ -293,11 +393,14 @@ test('updates order when SSE event received', async () => {
 const mock = mockSSE(url: string)
 
 mock.sendEvent({ type: string, payload: unknown })  // Send an event
+mock.sendRaw(text: string)                           // Send raw SSE wire format
 mock.close()                                         // Simulate connection close
 mock.getConnection()                                 // Get the mock EventSource
 
-mockSSE.restore()                                    // Restore real EventSource
+mockSSE.restore()                                    // Restore real EventSource and fetch
 ```
+
+`mockSSE` automatically intercepts both `EventSource` and `fetch` for registered URLs, so your tests work regardless of which transport the component uses internally.
 
 ## Documentation
 

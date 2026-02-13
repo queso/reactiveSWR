@@ -52,6 +52,47 @@ export interface EventMapping<TPayload = any, TData = any> {
 }
 
 /**
+ * Transport interface for SSE connections.
+ * Provides an abstraction over the native EventSource API to support
+ * custom transports (e.g., fetch-based SSE for POST requests).
+ */
+export interface SSETransport {
+  onmessage: ((event: MessageEvent) => void) | null
+  onerror: ((event: Event) => void) | null
+  onopen: ((event: Event) => void) | null
+  close: () => void
+  readyState: number
+  /**
+   * Add a listener for a named SSE data event.
+   * This is ONLY for named SSE data events (e.g., "user.updated"),
+   * not for generic DOM events like "open" or "error".
+   */
+  addEventListener: (
+    type: string,
+    listener: (event: MessageEvent) => void,
+  ) => void
+  /**
+   * Remove a listener for a named SSE data event.
+   * This is ONLY for named SSE data events (e.g., "user.updated"),
+   * not for generic DOM events like "open" or "error".
+   */
+  removeEventListener: (
+    type: string,
+    listener: (event: MessageEvent) => void,
+  ) => void
+}
+
+/**
+ * Request options for SSE connections that require custom HTTP methods,
+ * request bodies, or additional headers.
+ */
+export interface SSERequestOptions {
+  method?: string
+  body?: BodyInit | Record<string, unknown>
+  headers?: Record<string, string>
+}
+
+/**
  * Configuration for SSE connection and event handling
  */
 export interface SSEConfig {
@@ -65,6 +106,10 @@ export interface SSEConfig {
   reconnect?: ReconnectConfig
   debug?: boolean
   onEventError?: (event: ParsedEvent, error: unknown) => void
+  method?: string
+  body?: BodyInit | Record<string, unknown>
+  headers?: Record<string, string>
+  transport?: (url: string) => SSETransport
 }
 
 /**

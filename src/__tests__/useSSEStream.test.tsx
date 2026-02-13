@@ -121,8 +121,8 @@ describe('useSSEStream', () => {
       renderToString(createElement(StreamConsumer))
 
       expect(capturedResult).not.toBeNull()
-      expect(capturedResult!.data).toBeUndefined()
-      expect(capturedResult!.error).toBeUndefined()
+      expect(capturedResult?.data).toBeUndefined()
+      expect(capturedResult?.error).toBeUndefined()
     })
   })
 
@@ -132,11 +132,11 @@ describe('useSSEStream', () => {
       const testData = { count: 42, name: 'test' }
 
       let capturedData: unknown = null
-      let renderCount = 0
+      let _renderCount = 0
 
       function StreamConsumer() {
         const { data } = useSSEStream(testUrl)
-        renderCount++
+        _renderCount++
         if (data !== undefined) {
           capturedData = data
         }

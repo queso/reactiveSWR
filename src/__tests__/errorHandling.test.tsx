@@ -1,7 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
-import type { SSEConfig, ParsedEvent } from '../types.ts'
+import type { ParsedEvent, SSEConfig } from '../types.ts'
 
 /**
  * Tests for error handling and debug mode (WI-070).
@@ -407,7 +415,7 @@ describe('Error Handling and Debug Mode', () => {
         events: {
           'data.updated': {
             key: '/api/data',
-            update: (current: unknown, payload: { value: string }) => {
+            update: (_current: unknown, payload: { value: string }) => {
               updateCallCount++
               if (updateCallCount === 1) {
                 throw new Error('First update fails')
@@ -802,8 +810,10 @@ describe('Error Handling and Debug Mode', () => {
         events: {
           'counter.increment': {
             key: '/api/counter',
-            update: (current: number | undefined, payload: { amount: number }) =>
-              (current ?? 0) + payload.amount,
+            update: (
+              current: number | undefined,
+              payload: { amount: number },
+            ) => (current ?? 0) + payload.amount,
           },
         },
       }

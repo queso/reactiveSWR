@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import { createFetchTransport } from '../fetchTransport.ts'
+import type { SSETransport } from '../types.ts'
 
 /**
  * Options for the useSSEStream hook.
@@ -10,6 +12,14 @@ export interface UseSSEStreamOptions<T> {
    * function reference does NOT cause a reconnection.
    */
   transform?: (data: unknown) => T
+  /** HTTP method for the request. When body is provided without method, defaults to POST. */
+  method?: string
+  /** Request body. Triggers use of fetch-based transport instead of EventSource. */
+  body?: BodyInit | Record<string, unknown>
+  /** Additional request headers. Triggers use of fetch-based transport instead of EventSource. */
+  headers?: Record<string, string>
+  /** Custom transport factory. Takes precedence over method/body/headers. */
+  transport?: (url: string) => SSETransport
 }
 
 /**
@@ -21,45 +31,112 @@ export interface UseSSEStreamResult<T> {
 }
 
 interface StreamEntry<T> {
-  source: EventSource
+  source: SSETransport | EventSource
   data: T | undefined
   error: Error | undefined
   transform: ((data: unknown) => T) | undefined
   refCount: number
+  /** Snapshot of mock instances array at creation time for staleness detection */
+  _instancesRef: unknown[] | undefined
 }
 
 /**
- * Active streams keyed by URL. Provides connection reuse across renders
- * for the same URL while properly closing stale connections on URL change.
+ * Active streams keyed by composite key. Provides connection reuse across renders
+ * for the same URL+options while properly closing stale connections on change.
  */
 const streams = new Map<string, StreamEntry<unknown>>()
+
+function isNonSerializable(body: unknown): boolean {
+  if (body instanceof Blob) return true
+  if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream)
+    return true
+  if (typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer)
+    return true
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return true
+  return false
+}
+
+let nonSerializableCounter = 0
+
+// Assign stable IDs to transport factory functions so that the same factory
+// reference produces the same connection key (enabling reuse across re-renders)
+// while different factory references produce different keys (preventing
+// unrelated components from sharing connections).
+const transportFactoryIds = new WeakMap<Function, number>()
+let transportFactoryCounter = 0
+
+function getTransportFactoryId(factory: Function): number {
+  let id = transportFactoryIds.get(factory)
+  if (id === undefined) {
+    id = ++transportFactoryCounter
+    transportFactoryIds.set(factory, id)
+  }
+  return id
+}
+
+function computeConnectionKey<T>(
+  url: string,
+  options?: UseSSEStreamOptions<T>,
+): string {
+  if (!options) return url
+
+  // Custom transport factory -> keyed by factory identity so different
+  // factories produce different keys while the same factory reuses its key
+  if (options.transport) {
+    return `${url}::transport:${getTransportFactoryId(options.transport)}`
+  }
+
+  const { method, body, headers } = options
+
+  // No transport-related options -> key is just the URL
+  if (method === undefined && body === undefined && headers === undefined)
+    return url
+
+  // Non-serializable bodies -> never reuse
+  if (body !== undefined && isNonSerializable(body)) {
+    return `${url}::${++nonSerializableCounter}`
+  }
+
+  const parts = [url]
+  if (method !== undefined) parts.push(`method:${method}`)
+  if (body !== undefined) parts.push(`body:${JSON.stringify(body)}`)
+  if (headers !== undefined) parts.push(`headers:${JSON.stringify(headers)}`)
+  return parts.join('::')
+}
+
+function getMockInstances(): unknown[] | undefined {
+  const ctor = globalThis.EventSource as { instances?: unknown[] }
+  return Array.isArray(ctor.instances) ? ctor.instances : undefined
+}
 
 function isStale(entry: StreamEntry<unknown>): boolean {
   if (entry.source.readyState === 2) {
     return true
   }
   // Detect environment resets (e.g. test framework clearing tracked instances)
-  const ctor = globalThis.EventSource as { instances?: unknown[] }
-  if (Array.isArray(ctor.instances) && !ctor.instances.includes(entry.source)) {
-    return true
+  const currentInstances = getMockInstances()
+  if (currentInstances !== undefined) {
+    if (entry.source instanceof EventSource) {
+      // EventSource entry: stale if not in the current instances list
+      if (!currentInstances.includes(entry.source)) {
+        return true
+      }
+    } else if (
+      entry._instancesRef !== undefined &&
+      entry._instancesRef !== currentInstances
+    ) {
+      // Non-EventSource entry: stale if the mock instances array was replaced
+      // (indicates test framework reset between test cases)
+      return true
+    }
   }
   return false
 }
 
-function createStream<T>(
-  url: string,
-  transform: ((data: unknown) => T) | undefined,
-): StreamEntry<T> {
-  const source = new EventSource(url)
-
-  const entry: StreamEntry<T> = {
-    source,
-    data: undefined,
-    error: undefined,
-    transform,
-    refCount: 0,
-  }
-
+function attachHandlers<T>(
+  source: SSETransport | EventSource,
+  entry: StreamEntry<T>,
+): void {
   source.onmessage = (event: MessageEvent) => {
     try {
       const parsed: unknown = JSON.parse(event.data as string)
@@ -68,9 +145,10 @@ function createStream<T>(
       try {
         entry.data = currentTransform ? currentTransform(parsed) : (parsed as T)
       } catch (transformError) {
-        entry.error = transformError instanceof Error
-          ? transformError
-          : new Error('Transform function error')
+        entry.error =
+          transformError instanceof Error
+            ? transformError
+            : new Error('Transform function error')
       }
     } catch {
       entry.error = new Error('Failed to parse SSE message as JSON')
@@ -80,16 +158,72 @@ function createStream<T>(
   source.onerror = () => {
     entry.error = new Error('SSE connection error')
   }
+}
 
-  streams.set(url, entry as StreamEntry<unknown>)
+function createStream<T>(
+  url: string,
+  key: string,
+  transform: ((data: unknown) => T) | undefined,
+  options?: UseSSEStreamOptions<T>,
+): StreamEntry<T> {
+  const entry: StreamEntry<T> = {
+    source: null as unknown as SSETransport | EventSource,
+    data: undefined,
+    error: undefined,
+    transform,
+    refCount: 0,
+    _instancesRef: getMockInstances(),
+  }
+
+  // Transport selection:
+  // 1. Custom transport factory takes precedence
+  // 2. method/body/headers -> createFetchTransport
+  // 3. Default -> EventSource
+  if (options?.transport) {
+    try {
+      const source = options.transport(url)
+      entry.source = source
+      attachHandlers(source, entry)
+    } catch (err) {
+      // Create a minimal no-op source for the entry
+      entry.source = {
+        readyState: 2,
+        onmessage: null,
+        onerror: null,
+        onopen: null,
+        close() {},
+        addEventListener() {},
+        removeEventListener() {},
+      }
+      entry.error = err instanceof Error ? err : new Error(String(err))
+    }
+  } else if (
+    options?.method !== undefined ||
+    options?.body !== undefined ||
+    options?.headers !== undefined
+  ) {
+    const source = createFetchTransport(url, {
+      method: options.method,
+      body: options.body,
+      headers: options.headers,
+    })
+    entry.source = source
+    attachHandlers(source, entry)
+  } else {
+    const source = new EventSource(url)
+    entry.source = source
+    attachHandlers(source, entry)
+  }
+
+  streams.set(key, entry as StreamEntry<unknown>)
   return entry
 }
 
-function closeStream(url: string): void {
-  const entry = streams.get(url)
+function closeStream(key: string): void {
+  const entry = streams.get(key)
   if (entry) {
     entry.source.close()
-    streams.delete(url)
+    streams.delete(key)
   }
 }
 
@@ -100,46 +234,51 @@ function closeStream(url: string): void {
  * When the URL changes, the old connection is closed and a new one is opened.
  * The transform function uses a ref pattern so changing its reference
  * does not trigger a reconnection.
+ *
+ * Supports custom transports via the `transport`, `method`, `body`, and
+ * `headers` options.
  */
 export function useSSEStream<T = unknown>(
   url: string,
   options?: UseSSEStreamOptions<T>,
 ): UseSSEStreamResult<T> {
-  // Track the URL this hook instance has incremented refCount for.
+  // Track the key this hook instance has incremented refCount for.
   // This ensures cleanup decrements the correct entry even if URL changes.
-  const subscribedUrlRef = useRef<string | null>(null)
+  const subscribedKeyRef = useRef<string | null>(null)
   const transform = options?.transform
 
-  let entry = streams.get(url) as StreamEntry<T> | undefined
+  const key = computeConnectionKey(url, options)
+
+  let entry = streams.get(key) as StreamEntry<T> | undefined
 
   // Evict stale entries (closed connections or test resets)
   if (entry && isStale(entry as StreamEntry<unknown>)) {
-    streams.delete(url)
+    streams.delete(key)
     entry = undefined
   }
 
   if (!entry) {
-    entry = createStream<T>(url, transform)
+    entry = createStream<T>(url, key, transform, options)
   }
 
-  // Synchronous reference counting: increment when subscribing to a new URL
+  // Synchronous reference counting: increment when subscribing to a new key
   // This happens during render to avoid race conditions with effect cleanup
-  if (subscribedUrlRef.current !== url) {
-    // Decrement refCount for the old URL (if any) and close if no longer used
-    const oldUrl = subscribedUrlRef.current
-    if (oldUrl !== null) {
-      const oldEntry = streams.get(oldUrl)
+  if (subscribedKeyRef.current !== key) {
+    // Decrement refCount for the old key (if any) and close if no longer used
+    const oldKey = subscribedKeyRef.current
+    if (oldKey !== null) {
+      const oldEntry = streams.get(oldKey)
       if (oldEntry) {
         oldEntry.refCount--
         if (oldEntry.refCount <= 0) {
-          closeStream(oldUrl)
+          closeStream(oldKey)
         }
       }
     }
 
-    // Increment refCount for the new URL
+    // Increment refCount for the new key
     entry.refCount++
-    subscribedUrlRef.current = url
+    subscribedKeyRef.current = key
   }
 
   // Update transform on every render (ref pattern avoids reconnection)
@@ -149,18 +288,18 @@ export function useSSEStream<T = unknown>(
   // useEffect doesn't run during SSR/renderToString, which is fine
   // because SSR doesn't need cleanup (no persistent connections)
   useEffect(() => {
-    // Return cleanup function that decrements refCount for the subscribed URL
+    // Return cleanup function that decrements refCount for the subscribed key
     return () => {
-      const urlToCleanup = subscribedUrlRef.current
-      if (urlToCleanup !== null) {
-        const entryToCleanup = streams.get(urlToCleanup)
+      const keyToCleanup = subscribedKeyRef.current
+      if (keyToCleanup !== null) {
+        const entryToCleanup = streams.get(keyToCleanup)
         if (entryToCleanup) {
           entryToCleanup.refCount--
           if (entryToCleanup.refCount <= 0) {
-            closeStream(urlToCleanup)
+            closeStream(keyToCleanup)
           }
         }
-        subscribedUrlRef.current = null
+        subscribedKeyRef.current = null
       }
     }
   }, [])

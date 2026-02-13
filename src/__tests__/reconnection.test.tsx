@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
-import type { ReconnectConfig, SSEConfig, SSEStatus } from '../types.ts'
+import type { SSEConfig, SSEStatus } from '../types.ts'
 
 /**
  * Tests for SSEProvider reconnection with exponential backoff (WI-065).
@@ -474,7 +474,7 @@ describe('SSEProvider Reconnection', () => {
       // Initial connection exhausts maxAttempts
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
 
-      const timerCountBefore = pendingTimers.size
+      const _timerCountBefore = pendingTimers.size
       advanceTimersByTime(10000)
 
       // No reconnect should have occurred
@@ -516,13 +516,13 @@ describe('SSEProvider Reconnection', () => {
 
       // Status should show reconnect attempts
       expect(capturedStatus).not.toBeNull()
-      expect(capturedStatus!.reconnectAttempt).toBeGreaterThan(0)
+      expect(capturedStatus?.reconnectAttempt).toBeGreaterThan(0)
 
       // Successful reconnection
       MockEventSource.getLastInstance()?.simulateOpen()
 
       // After successful connection, reconnectAttempt should reset to 0
-      expect(capturedStatus!.reconnectAttempt).toBe(0)
+      expect(capturedStatus?.reconnectAttempt).toBe(0)
     })
 
     it('should set connected: true and connecting: false on successful reconnection', async () => {
@@ -550,21 +550,21 @@ describe('SSEProvider Reconnection', () => {
 
       // Initial open
       MockEventSource.getLastInstance()?.simulateOpen()
-      expect(capturedStatus!.connected).toBe(true)
-      expect(capturedStatus!.connecting).toBe(false)
+      expect(capturedStatus?.connected).toBe(true)
+      expect(capturedStatus?.connecting).toBe(false)
 
       // Connection failure
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
-      expect(capturedStatus!.connected).toBe(false)
+      expect(capturedStatus?.connected).toBe(false)
 
       // Reconnect
       advanceTimersByTime(1000)
       const newInstance = MockEventSource.getLastInstance()
       newInstance?.simulateOpen()
 
-      expect(capturedStatus!.connected).toBe(true)
-      expect(capturedStatus!.connecting).toBe(false)
-      expect(capturedStatus!.error).toBeNull()
+      expect(capturedStatus?.connected).toBe(true)
+      expect(capturedStatus?.connecting).toBe(false)
+      expect(capturedStatus?.error).toBeNull()
     })
 
     it('should clear error on successful reconnection', async () => {
@@ -592,14 +592,14 @@ describe('SSEProvider Reconnection', () => {
 
       // Connection failure sets error
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
-      expect(capturedStatus!.error).not.toBeNull()
+      expect(capturedStatus?.error).not.toBeNull()
 
       // Reconnect
       advanceTimersByTime(1000)
       MockEventSource.getLastInstance()?.simulateOpen()
 
       // Error should be cleared
-      expect(capturedStatus!.error).toBeNull()
+      expect(capturedStatus?.error).toBeNull()
     })
   })
 
@@ -701,22 +701,22 @@ describe('SSEProvider Reconnection', () => {
       )
 
       // Initial state
-      expect(capturedStatus!.reconnectAttempt).toBe(0)
+      expect(capturedStatus?.reconnectAttempt).toBe(0)
 
       // First failure and reconnect attempt
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
       advanceTimersByTime(1000)
-      expect(capturedStatus!.reconnectAttempt).toBe(1)
+      expect(capturedStatus?.reconnectAttempt).toBe(1)
 
       // Second failure and reconnect attempt
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
       advanceTimersByTime(2000)
-      expect(capturedStatus!.reconnectAttempt).toBe(2)
+      expect(capturedStatus?.reconnectAttempt).toBe(2)
 
       // Third failure and reconnect attempt
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
       advanceTimersByTime(4000)
-      expect(capturedStatus!.reconnectAttempt).toBe(3)
+      expect(capturedStatus?.reconnectAttempt).toBe(3)
     })
 
     it('should reflect current attempt number during connecting state', async () => {
@@ -747,9 +747,9 @@ describe('SSEProvider Reconnection', () => {
       advanceTimersByTime(1000)
 
       // During reconnection attempt, should show attempt number and connecting state
-      expect(capturedStatus!.reconnectAttempt).toBe(1)
-      expect(capturedStatus!.connecting).toBe(true)
-      expect(capturedStatus!.connected).toBe(false)
+      expect(capturedStatus?.reconnectAttempt).toBe(1)
+      expect(capturedStatus?.connecting).toBe(true)
+      expect(capturedStatus?.connected).toBe(false)
     })
   })
 
@@ -806,7 +806,7 @@ describe('SSEProvider Reconnection', () => {
         ),
       )
 
-      const initialAttempts = MockEventSource.connectionAttempts
+      const _initialAttempts = MockEventSource.connectionAttempts
 
       // Simulate failure
       MockEventSource.getLastInstance()?.simulateConnectionFailure()

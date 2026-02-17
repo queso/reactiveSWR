@@ -10,6 +10,8 @@ export type {
 export { useSSEStream } from './hooks/useSSEStream.ts'
 // Re-export components
 export { SSEProvider, useSSEContext } from './SSEProvider.tsx'
+// Re-export schema builder
+export { defineSchema } from './schema.ts'
 // Re-export SSE parser for custom transport builders
 export { createSSEParser } from './sseParser.ts'
 // Re-export all types
@@ -17,6 +19,9 @@ export type {
   EventMapping,
   ParsedEvent,
   ReconnectConfig,
+  SchemaDefinition,
+  SchemaEventDefinition,
+  SchemaResult,
   SSEConfig,
   SSEProviderProps,
   SSERequestOptions,

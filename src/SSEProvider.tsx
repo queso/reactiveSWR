@@ -116,6 +116,54 @@ function resolveKeys(
   return Array.isArray(keyConfig) ? keyConfig : [keyConfig]
 }
 
+/**
+ * Derive an EventMapping record from a schema (the frozen output of defineSchema()).
+ * Each schema entry carries key, update, filter, and transform -- all of which
+ * map directly onto the EventMapping shape.
+ */
+function deriveEventsFromSchema(
+  // biome-ignore lint/suspicious/noExplicitAny: schema type is erased at this level
+  schema: Record<string, any>,
+): Record<string, EventMapping> {
+  // biome-ignore lint/suspicious/noExplicitAny: EventMapping generics erased in Record usage
+  const events: Record<string, EventMapping<any, any>> = {}
+  for (const [eventName, def] of Object.entries(schema)) {
+    events[eventName] = {
+      key: def.key,
+      update: def.update,
+      filter: def.filter,
+      transform: def.transform,
+    }
+  }
+  return events
+}
+
+/**
+ * Resolve the effective events mapping from an SSEConfig.
+ * When `schema` is provided it takes precedence over `events`.
+ * Returns a new config object guaranteed to have an `events` property.
+ */
+function resolveConfig(
+  config: SSEConfig,
+): SSEConfig & { events: Record<string, EventMapping> } {
+  if (config.schema !== undefined) {
+    if (config.events !== undefined && config.debug) {
+      console.warn(
+        '[reactiveSWR] Both schema and events were provided. schema takes precedence.',
+      )
+    }
+    return {
+      ...config,
+      events: deriveEventsFromSchema(config.schema),
+    }
+  }
+  return {
+    ...config,
+    // biome-ignore lint/suspicious/noExplicitAny: EventMapping generics erased
+    events: (config.events ?? {}) as Record<string, EventMapping<any, any>>,
+  }
+}
+
 export function SSEProvider({
   config,
   children,
@@ -129,9 +177,12 @@ export function SSEProvider({
     new Map<string, Set<(payload: unknown) => void>>(),
   )
 
-  // Store config in ref to access latest values in handlers
-  const configRef = useRef(config)
-  configRef.current = config
+  // Resolve the effective config (schema -> events derivation, events fallback)
+  const resolvedConfig = resolveConfig(config)
+
+  // Store resolved config in ref to access latest values in handlers
+  const configRef = useRef(resolvedConfig)
+  configRef.current = resolvedConfig
 
   // Use a stable status object that is mutated in place for SSR compatibility
   // This allows tests using renderToString to observe status changes
@@ -458,9 +509,12 @@ export function SSEProvider({
   // Initialize connection synchronously (for SSR compatibility)
   // Also handle URL changes by creating a new connection when URL differs
   const urlChanged =
-    currentUrlRef.current !== null && currentUrlRef.current !== config.url
+    currentUrlRef.current !== null &&
+    currentUrlRef.current !== resolvedConfig.url
   // Create connection if: custom transport or fetch transport is configured, OR EventSource is available
-  const hasCustomTransport = !!(config.transport || needsFetchTransport(config))
+  const hasCustomTransport = !!(
+    resolvedConfig.transport || needsFetchTransport(resolvedConfig)
+  )
   if (hasCustomTransport || typeof EventSource !== 'undefined') {
     if (eventSourceRef.current === null || urlChanged) {
       createConnection()
@@ -565,7 +619,7 @@ export function SSEProvider({
   const contextValue: SSEContextValue = {
     status,
     subscribe,
-    config,
+    config: resolvedConfig,
   }
 
   return (

@@ -394,7 +394,7 @@ describe('createFetchTransport', () => {
       let abortSignal: AbortSignal | undefined
 
       globalThis.fetch = mock(
-        (input: RequestInfo | URL, init?: RequestInit) => {
+        (_input: RequestInfo | URL, init?: RequestInit) => {
           abortSignal = init?.signal as AbortSignal
           return new Promise<Response>(() => {}) // hang forever
         },

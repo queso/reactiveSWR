@@ -12,23 +12,22 @@ Building real-time UIs typically requires:
 
 ## The Solution
 
-reactiveSWR provides a declarative bridge between SSE events and SWR's cache. You define a mapping once, and your components just use normal `useSWR` hooks--they automatically receive real-time updates without knowing about SSE.
+reactiveSWR provides a declarative bridge between SSE events and SWR's cache. Define a shared schema once, and your components just use normal `useSWR` hooks -- they automatically receive real-time updates without knowing about SSE.
 
 ```typescript
-// Define your event mappings once
-const config: SSEConfig = {
-  url: '/api/events',
-  events: {
-    'order:updated': {
-      key: (p) => `/api/orders/${p.id}`,
-      update: 'set',  // Use SSE payload directly, no refetch
-    },
-    'comment:added': {
-      key: (p) => `/api/posts/${p.postId}/comments`,
-      update: (current, p) => [...(current ?? []), p.comment],
-    },
+import { defineSchema } from 'reactive-swr'
+
+// Define your schema once -- shared by server and client
+const schema = defineSchema({
+  'order:updated': {
+    key: (p: { id: string; status: string }) => `/api/orders/${p.id}`,
+    update: 'set',
   },
-}
+  'comment:added': {
+    key: (p: { postId: string; comment: string }) => `/api/posts/${p.postId}/comments`,
+    update: (current: string[] | undefined, p) => [...(current ?? []), p.comment],
+  },
+})
 
 // Components just use useSWR - updates happen automatically
 function OrderStatus({ orderId }) {
@@ -36,6 +35,8 @@ function OrderStatus({ orderId }) {
   return <div>Status: {data?.status}</div>  // Real-time!
 }
 ```
+
+You can also define event mappings manually without a schema -- see [Manual Events Mapping](#manual-events-mapping) below.
 
 ## Installation
 
@@ -45,24 +46,56 @@ npm install reactive-swr swr
 
 ## Quick Start
 
+### 1. Define a schema (shared between server and client)
+
+```typescript
+// schema.ts
+import { defineSchema } from 'reactive-swr'
+
+export const schema = defineSchema({
+  'user:updated': {
+    key: (p: { id: string }) => `/api/users/${p.id}`,
+    update: 'set',
+  },
+  'order:placed': {
+    key: '/api/orders',
+    update: 'refetch',
+  },
+})
+```
+
+### 2. Server: create an SSE channel
+
+```typescript
+// server.ts
+import { createChannel } from 'reactive-swr/server'
+import { schema } from './schema'
+
+const channel = createChannel(schema)
+
+// Web standard (Cloudflare Workers, Deno, Bun)
+export function GET(request: Request) {
+  return channel.connect(request)
+}
+
+// Node.js HTTP / Express / Fastify
+app.get('/api/events', (req, res) => channel.connect(req, res))
+
+// Broadcast type-safe events
+channel.emit('user:updated', { id: '42', name: 'Alice' })
+```
+
+### 3. Client: wire up SSEProvider with the schema
+
 ```tsx
 import { SWRConfig } from 'swr'
 import { SSEProvider } from 'reactive-swr'
-
-const sseConfig = {
-  url: '/api/events',
-  events: {
-    'user:updated': {
-      key: (p) => `/api/users/${p.id}`,
-      update: 'set',
-    },
-  },
-}
+import { schema } from './schema'
 
 function App() {
   return (
     <SWRConfig value={{ fetcher: (url) => fetch(url).then(r => r.json()) }}>
-      <SSEProvider config={sseConfig}>
+      <SSEProvider config={{ url: '/api/events', schema }}>
         <YourApp />
       </SSEProvider>
     </SWRConfig>
@@ -70,7 +103,129 @@ function App() {
 }
 ```
 
+Components use standard `useSWR` hooks and receive real-time updates automatically.
+
 ## Features
+
+### Schema-Driven SSE
+
+The recommended approach is to define a shared schema that drives both server-side event emission and client-side cache updates. This eliminates type drift between server and client.
+
+#### `defineSchema()`
+
+`defineSchema()` creates a frozen, type-safe schema object. Event names are preserved as string literals for full TypeScript autocomplete on both sides.
+
+```typescript
+import { defineSchema } from 'reactive-swr'
+
+const schema = defineSchema({
+  'user:updated': {
+    key: (p: { id: string; name: string }) => `/api/users/${p.id}`,
+    update: 'set',
+  },
+  'stats:refreshed': {
+    key: ['/api/stats', '/api/dashboard'],
+    update: 'refetch',
+  },
+  'comment:added': {
+    key: (p: { postId: string; comment: Comment }) => `/api/posts/${p.postId}/comments`,
+    update: (current: Comment[] | undefined, p) => [...(current ?? []), p.comment],
+    filter: (p) => !p.comment.deleted,
+    transform: (p) => ({ ...p, comment: { ...p.comment, isNew: true } }),
+  },
+})
+```
+
+Each event definition supports:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `key` | `string \| string[] \| (payload) => string \| string[]` | SWR cache key(s) to update |
+| `update` | `'set' \| 'refetch' \| (current, payload) => newValue` | Update strategy (default: `'set'`) |
+| `filter` | `(payload) => boolean` | Optional client-side filter |
+| `transform` | `(payload) => payload` | Optional client-side transform |
+
+#### `createChannel()` (Server)
+
+`createChannel()` provides a complete server-side SSE endpoint. It handles wire formatting, heartbeats, connection tracking, and cleanup. Import it from `reactive-swr/server`.
+
+```typescript
+import { createChannel } from 'reactive-swr/server'
+
+const channel = createChannel(schema, {
+  heartbeatInterval: 30000, // default: 30s
+})
+```
+
+**Dual runtime support** -- works with both Web standard APIs (Cloudflare Workers, Deno, Bun) and Node.js (Express, Fastify, raw `http`):
+
+```typescript
+// Web standard: returns a streaming Response
+export function GET(request: Request): Response {
+  return channel.connect(request)
+}
+
+// Node.js: writes to ServerResponse
+app.get('/events', (req, res) => {
+  channel.connect(req, res)
+})
+```
+
+**Broadcast events** to all connected clients:
+
+```typescript
+// Type-safe: eventType and payload are checked against the schema
+channel.emit('user:updated', { id: '42', name: 'Alice' })
+```
+
+**Scoped emitters** for request-response patterns (e.g., streaming query results):
+
+```typescript
+app.post('/api/query', (req, res) => {
+  const emitter = channel.respond()
+  emitter.onchunk = (chunk) => res.write(chunk)
+  emitter.emit('result', { rows: queryResults })
+  emitter.close()
+})
+```
+
+**Shutdown** all connections:
+
+```typescript
+channel.close() // Closes all connections, stops heartbeats
+```
+
+#### SSEProvider `schema` Prop
+
+Pass a schema to `SSEProvider` instead of manually writing `events` mappings:
+
+```tsx
+<SSEProvider config={{ url: '/api/events', schema }}>
+  <App />
+</SSEProvider>
+```
+
+The `events` mapping is automatically derived from the schema's `key`, `update`, `filter`, and `transform` definitions. `schema` and `events` are mutually exclusive -- providing both is a TypeScript error. The `parseEvent` callback remains configurable alongside `schema`.
+
+### Manual Events Mapping
+
+If you prefer not to use a schema, you can define event mappings manually. This is the original API and remains fully supported.
+
+```typescript
+const config: SSEConfig = {
+  url: '/api/events',
+  events: {
+    'order:updated': {
+      key: (p) => `/api/orders/${p.id}`,
+      update: 'set',
+    },
+  },
+}
+
+<SSEProvider config={config}>
+  <App />
+</SSEProvider>
+```
 
 ### Update Strategies
 
@@ -392,13 +547,16 @@ test('updates order when SSE event received', async () => {
 ```typescript
 const mock = mockSSE(url: string)
 
-mock.sendEvent({ type: string, payload: unknown })  // Send an event
+mock.sendEvent({ type: string, payload: unknown })  // Send a typed event
+mock.sendSSE(data: unknown)                          // Send raw JSON data (convenience for createSSEParser tests)
 mock.sendRaw(text: string)                           // Send raw SSE wire format
 mock.close()                                         // Simulate connection close
 mock.getConnection()                                 // Get the mock EventSource
 
 mockSSE.restore()                                    // Restore real EventSource and fetch
 ```
+
+`sendSSE(data)` is a convenience wrapper that calls `sendRaw(\`data: ${JSON.stringify(data)}\n\n\`)`. It simplifies tests for consumers using `createSSEParser` who work with raw SSE wire format.
 
 `mockSSE` automatically intercepts both `EventSource` and `fetch` for registered URLs, so your tests work regardless of which transport the component uses internally.
 

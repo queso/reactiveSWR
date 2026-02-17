@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
  */
 
 describe('mockSSE transport-aware', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: dynamically imported testing utility
   let mockSSE: any
   let originalFetch: typeof globalThis.fetch
 
@@ -63,7 +64,7 @@ describe('mockSSE transport-aware', () => {
       mock.sendEvent({ type: 'update', payload: { id: 1 } })
 
       expect(received).not.toBeNull()
-      const parsed = JSON.parse(received!.data)
+      const parsed = JSON.parse(received?.data)
       expect(parsed.type).toBe('update')
       expect(parsed.payload).toEqual({ id: 1 })
     })
@@ -112,11 +113,11 @@ describe('mockSSE transport-aware', () => {
       // This URL is not mocked, so it should go through to the real fetch
       // We expect it to fail or return a real response, not a mock
       let usedRealFetch = false
-      const savedFetch = originalFetch
+      const _savedFetch = originalFetch
       // We can detect passthrough by checking if the original fetch was called
       // Since non-mocked URLs may fail in test env, we catch the error
       try {
-        const response = await fetch('https://example.com/not-mocked')
+        const _response = await fetch('https://example.com/not-mocked')
         // If we get here, real fetch was used (or mock incorrectly intercepted)
         // Check that the response is NOT a mock SSE response
         usedRealFetch = true
@@ -146,7 +147,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       mock.sendEvent({ type: 'update', payload: { id: 42 } })
@@ -163,7 +164,7 @@ describe('mockSSE transport-aware', () => {
       const dataMatch = text.match(/data:\s*(.+)\n/)
       expect(dataMatch).not.toBeNull()
 
-      const parsed = JSON.parse(dataMatch![1])
+      const parsed = JSON.parse(dataMatch?.[1])
       expect(parsed.type).toBe('update')
       expect(parsed.payload).toEqual({ id: 42 })
     })
@@ -172,7 +173,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       mock.sendEvent({ type: 'first', payload: { n: 1 } })
@@ -205,7 +206,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       // Send raw SSE format (e.g., with custom event type)
@@ -221,7 +222,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       mock.sendRaw('retry: 5000\ndata: reconnect\n\n')
@@ -237,7 +238,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       mock.sendRaw('id: 123\ndata: identified\n\n')
@@ -253,7 +254,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       mock.sendRaw(': keepalive\n\n')
@@ -270,7 +271,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
 
       mock.close()
 
@@ -282,7 +283,7 @@ describe('mockSSE transport-aware', () => {
       const mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
 
       // Send one event before close
       mock.sendEvent({ type: 'before', payload: {} })
@@ -322,10 +323,10 @@ describe('mockSSE transport-aware', () => {
     })
 
     it('should close all active fetch-based streams on restore', async () => {
-      const mock = mockSSE('/api/stream')
+      const _mock = mockSSE('/api/stream')
 
       const response = await fetch('/api/stream')
-      const reader = response.body!.getReader()
+      const reader = response.body?.getReader()
 
       mockSSE.restore()
 
@@ -361,8 +362,8 @@ describe('mockSSE transport-aware', () => {
       const response1 = await fetch('/api/stream1')
       const response2 = await fetch('/api/stream2')
 
-      const reader1 = response1.body!.getReader()
-      const reader2 = response2.body!.getReader()
+      const reader1 = response1.body?.getReader()
+      const reader2 = response2.body?.getReader()
       const decoder = new TextDecoder()
 
       mock1.sendEvent({ type: 'from-1', payload: { source: 1 } })
@@ -424,7 +425,7 @@ describe('mockSSE transport-aware', () => {
       mock.sendEvent({ type: 'test', payload: { value: 99 } })
 
       expect(data).not.toBeNull()
-      const parsed = JSON.parse(data!)
+      const parsed = JSON.parse(data as string)
       expect(parsed.type).toBe('test')
       expect(parsed.payload.value).toBe(99)
     })

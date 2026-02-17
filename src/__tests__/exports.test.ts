@@ -214,7 +214,7 @@ describe('Package exports', () => {
         method: 'POST',
         body: JSON.stringify({ subscribe: true }),
         headers: { Authorization: 'Bearer token' },
-        transport: (url: string) => ({
+        transport: (_url: string) => ({
           onmessage: null,
           onerror: null,
           onopen: null,

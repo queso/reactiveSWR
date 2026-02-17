@@ -13,6 +13,7 @@ interface SSEEventData {
 interface MockSSEControls {
   sendEvent: (event: SSEEventData) => void
   sendRaw: (text: string) => void
+  sendSSE: (data: unknown) => void
   close: () => void
   getConnection: () => MockEventSource | undefined
 }
@@ -199,7 +200,7 @@ class MockRegistry {
       }
 
       return self.originalFetch?.(input, init) as Promise<Response>
-    }
+    } as typeof globalThis.fetch
 
     this.installed = true
     this.restored = false
@@ -364,6 +365,14 @@ function mockSSE(url: string): MockSSEControls {
     sendRaw(text: string): void {
       if (mockRegistry.isRestored()) return
       mockRegistry.sendRawToFetchStreams(url, text)
+    },
+
+    sendSSE(data: unknown): void {
+      if (mockRegistry.isRestored()) return
+      mockRegistry.sendRawToFetchStreams(
+        url,
+        `data: ${JSON.stringify(data)}\n\n`,
+      )
     },
 
     close(): void {

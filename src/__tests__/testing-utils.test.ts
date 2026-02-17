@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
  */
 
 describe('mockSSE', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: dynamically imported testing utility
   let mockSSE: any
   let originalEventSource: typeof EventSource | undefined
 
@@ -149,9 +150,9 @@ describe('mockSSE', () => {
       mock.sendEvent({ type: 'test', payload: { value: 42 } })
 
       expect(typeof receivedData).toBe('string')
-      expect(() => JSON.parse(receivedData!)).not.toThrow()
+      expect(() => JSON.parse(receivedData as string)).not.toThrow()
 
-      const parsed = JSON.parse(receivedData!)
+      const parsed = JSON.parse(receivedData as string)
       expect(parsed.type).toBe('test')
       expect(parsed.payload.value).toBe(42)
     })
@@ -354,7 +355,7 @@ describe('mockSSE', () => {
       const mock = mockSSE('/api/events')
       const eventSource = new EventSource('/api/events')
 
-      let receivedPayload: any = null
+      let receivedPayload: Record<string, unknown> | null = null
       eventSource.onmessage = (event: MessageEvent) => {
         const parsed = JSON.parse(event.data)
         receivedPayload = parsed.payload

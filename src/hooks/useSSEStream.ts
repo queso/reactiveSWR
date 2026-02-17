@@ -62,9 +62,11 @@ let nonSerializableCounter = 0
 // reference produces the same connection key (enabling reuse across re-renders)
 // while different factory references produce different keys (preventing
 // unrelated components from sharing connections).
+// biome-ignore lint/complexity/noBannedTypes: WeakMap requires object key type
 const transportFactoryIds = new WeakMap<Function, number>()
 let transportFactoryCounter = 0
 
+// biome-ignore lint/complexity/noBannedTypes: accepts any function reference for stable ID assignment
 function getTransportFactoryId(factory: Function): number {
   let id = transportFactoryIds.get(factory)
   if (id === undefined) {

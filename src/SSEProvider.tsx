@@ -139,29 +139,41 @@ function deriveEventsFromSchema(
 }
 
 /**
+ * Resolved config that always has a concrete `events` mapping.
+ * Uses an intersection with SSEConfigWithEvents to satisfy the type system
+ * after schema-to-events derivation or default fallback.
+ */
+type ResolvedSSEConfig = SSEConfig & { events: Record<string, EventMapping> }
+
+/**
  * Resolve the effective events mapping from an SSEConfig.
  * When `schema` is provided it takes precedence over `events`.
  * Returns a new config object guaranteed to have an `events` property.
  */
-function resolveConfig(
-  config: SSEConfig,
-): SSEConfig & { events: Record<string, EventMapping> } {
-  if (config.schema !== undefined) {
-    if (config.events !== undefined && config.debug) {
+function resolveConfig(config: SSEConfig): ResolvedSSEConfig {
+  // Access schema/events via index to avoid union narrowing to `never`
+  // when both are provided at runtime (bypassed via type assertion).
+  // biome-ignore lint/suspicious/noExplicitAny: accessing union properties that use `never` for mutual exclusivity
+  const rawConfig = config as any
+  const schema: Record<string, unknown> | undefined = rawConfig.schema
+  const events: Record<string, EventMapping> | undefined = rawConfig.events
+
+  if (schema !== undefined) {
+    if (events !== undefined && config.debug) {
       console.warn(
         '[reactiveSWR] Both schema and events were provided. schema takes precedence.',
       )
     }
     return {
       ...config,
-      events: deriveEventsFromSchema(config.schema),
-    }
+      events: deriveEventsFromSchema(schema),
+    } as ResolvedSSEConfig
   }
   return {
     ...config,
     // biome-ignore lint/suspicious/noExplicitAny: EventMapping generics erased
-    events: (config.events ?? {}) as Record<string, EventMapping<any, any>>,
-  }
+    events: (events ?? {}) as Record<string, EventMapping<any, any>>,
+  } as ResolvedSSEConfig
 }
 
 export function SSEProvider({

@@ -287,7 +287,8 @@ describe('SSEProvider schema prop', () => {
         url: '/api/events',
         schema: userSchema,
         events: { 'unrelated.event': { key: '/api/other' } },
-      } as SSEConfig)
+        // biome-ignore lint/suspicious/noExplicitAny: deliberately bypass type check to test runtime fallback
+      } as any)
 
       const events = (ctx as NonNullable<typeof ctx>).config.events
       // Schema-derived events take precedence
@@ -304,7 +305,8 @@ describe('SSEProvider schema prop', () => {
               schema: userSchema,
               events: { 'unrelated.event': { key: '/api/other' } },
               debug: true,
-            } as SSEConfig,
+              // biome-ignore lint/suspicious/noExplicitAny: deliberately bypass type check to test runtime fallback
+            } as any,
           },
           createElement('span', null, 'ok'),
         ),

@@ -93,19 +93,11 @@ export interface SSERequestOptions {
 }
 
 /**
- * Configuration for SSE connection and event handling.
- *
- * Provide either `events` (manual mapping) or `schema` (auto-derived from
- * defineSchema output). If both are provided at runtime, `schema` takes
- * precedence and a warning is logged when `debug: true`.
+ * Shared configuration properties for SSE connection.
+ * Used as a base for the discriminated SSEConfig union.
  */
-export interface SSEConfig {
+interface SSEConfigBase {
   url: string
-  // biome-ignore lint/suspicious/noExplicitAny: EventMapping generics are erased in config-level Record
-  events?: Record<string, EventMapping<any, any>>
-  /** Auto-derive the events mapping from a defineSchema() result. */
-  // biome-ignore lint/suspicious/noExplicitAny: schema type is erased at config level
-  schema?: Record<string, any>
   parseEvent?: (event: MessageEvent) => ParsedEvent
   onConnect?: () => void
   onError?: (error: Event) => void
@@ -118,6 +110,48 @@ export interface SSEConfig {
   headers?: Record<string, string>
   transport?: (url: string) => SSETransport
 }
+
+/**
+ * SSEConfig variant: auto-derive events from a defineSchema() result.
+ * When `schema` is provided, `events` must not be.
+ */
+interface SSEConfigWithSchema extends SSEConfigBase {
+  // biome-ignore lint/suspicious/noExplicitAny: schema type is erased at config level
+  schema: Record<string, any>
+  events?: never
+}
+
+/**
+ * SSEConfig variant: manual event mapping.
+ * When `events` is provided, `schema` must not be.
+ */
+interface SSEConfigWithEvents extends SSEConfigBase {
+  // biome-ignore lint/suspicious/noExplicitAny: EventMapping generics are erased in config-level Record
+  events: Record<string, EventMapping<any, any>>
+  schema?: never
+}
+
+/**
+ * SSEConfig variant: neither schema nor events provided.
+ * Useful for connections that only use subscribe() for manual event handling.
+ */
+interface SSEConfigWithNeither extends SSEConfigBase {
+  events?: never
+  schema?: never
+}
+
+/**
+ * Configuration for SSE connection and event handling.
+ *
+ * Provide either `events` (manual mapping) or `schema` (auto-derived from
+ * defineSchema output), but not both. Providing both is a TypeScript compile
+ * error. At runtime, if both are somehow provided (e.g. via type assertion),
+ * `schema` takes precedence and a warning is logged when `debug: true`.
+ */
+export type SSEConfig =
+  | SSEConfigWithSchema
+  | SSEConfigWithEvents
+  | SSEConfigWithNeither
 
 /**
  * Props for SSEProvider component

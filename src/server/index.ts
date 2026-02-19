@@ -1,4 +1,5 @@
 // Server-side utilities for reactiveSWR
+import { formatSSEEvent } from '../sseParser'
 
 // Capture built-in timer functions at module load time so that test patches to
 // globalThis.setInterval cannot cause infinite recursion inside createChannel.
@@ -50,10 +51,6 @@ const SSE_HEADERS: Record<string, string> = {
 
 const CONNECTED_EVENT = ': connected\n\n'
 const HEARTBEAT_COMMENT = ': heartbeat\n\n'
-
-function formatEvent(type: string, payload: unknown): string {
-  return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
-}
 
 /** A client connected via the Web standard (ReadableStream) path */
 interface WebClient {
@@ -233,7 +230,7 @@ export function createChannel(
 
       const scoped = {
         emit(type: string, payload: unknown): void {
-          const chunk = formatEvent(type, payload)
+          const chunk = formatSSEEvent(type, payload)
           if (onchunk) onchunk(chunk)
         },
         close(): void {
@@ -253,7 +250,7 @@ export function createChannel(
     emit(type: string, payload: unknown): void {
       if (broadcastPool.size === 0) return
 
-      const chunk = formatEvent(type, payload)
+      const chunk = formatSSEEvent(type, payload)
       const dead: Client[] = []
 
       for (const client of broadcastPool) {

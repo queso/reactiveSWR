@@ -4,6 +4,7 @@
  * Provides mockSSE to intercept and simulate EventSource and fetch-based
  * SSE connections in test environments without real SSE servers.
  */
+import { formatSSEData } from '../sseParser'
 
 interface SSEEventData {
   type: string
@@ -291,7 +292,7 @@ class MockRegistry {
     if (!entries) return
 
     const encoder = new TextEncoder()
-    const sseText = `data: ${JSON.stringify(event)}\n\n`
+    const sseText = formatSSEData(event)
     const chunk = encoder.encode(sseText)
 
     for (const entry of entries) {
@@ -369,10 +370,7 @@ function mockSSE(url: string): MockSSEControls {
 
     sendSSE(data: unknown): void {
       if (mockRegistry.isRestored()) return
-      mockRegistry.sendRawToFetchStreams(
-        url,
-        `data: ${JSON.stringify(data)}\n\n`,
-      )
+      mockRegistry.sendRawToFetchStreams(url, formatSSEData(data))
     },
 
     close(): void {

@@ -15,6 +15,16 @@ export interface SSEParser {
   reset(): void
 }
 
+/** Format a named SSE event with event type and JSON payload. */
+export function formatSSEEvent(type: string, payload: unknown): string {
+  return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
+}
+
+/** Format an unnamed SSE data-only message. */
+export function formatSSEData(data: unknown): string {
+  return `data: ${JSON.stringify(data)}\n\n`
+}
+
 export function createSSEParser(callbacks: SSEParserCallbacks): SSEParser {
   let buffer = ''
   let dataLines: string[] = []

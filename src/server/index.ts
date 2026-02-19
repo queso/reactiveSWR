@@ -16,7 +16,12 @@ interface ChannelOptions {
 interface ScopedEmitter {
   emit(type: string, payload: unknown): void
   close(): void
-  onchunk: ((chunk: string) => void) | undefined
+}
+
+/** Result of calling respond() with a Web standard Request */
+interface WebRespondResult {
+  response: Response
+  emitter: ScopedEmitter
 }
 
 interface Channel {
@@ -24,9 +29,13 @@ interface Channel {
     reqOrRequest: Request | NodeRequest,
     res?: NodeResponse,
   ): Response | undefined
-  respond(): ScopedEmitter
+  /** Web standard: returns `{ response, emitter }` for streaming responses */
+  respond(request: Request): WebRespondResult
+  /** Node.js: writes SSE headers to `res` and returns a `ScopedEmitter` */
+  respond(req: NodeRequest, res: NodeResponse): ScopedEmitter
   emit(type: string, payload: unknown): void
   close(): void
+  isClosed(): boolean
 }
 
 /** Minimal Node.js IncomingMessage shape */
@@ -110,6 +119,13 @@ function closeClient(client: Client): void {
 /**
  * Create a server-side SSE channel that broadcasts typed events to connected clients.
  *
+ * @param _schema - Schema created by `defineSchema()`. Used only for TypeScript
+ *   type inference at call sites — the schema value is not inspected at runtime
+ *   because `emit()` delegates directly to `JSON.stringify`. Passing the schema
+ *   here lets TypeScript enforce that event types and payloads match the schema
+ *   definition.
+ * @param options - Channel configuration options (e.g. `heartbeatInterval`).
+ *
  * @example
  * ```ts
  * const channel = createChannel(schema, { heartbeatInterval: 30000 })
@@ -124,6 +140,21 @@ function closeClient(client: Client): void {
  *
  * // Broadcast to all clients
  * channel.emit('user.updated', { id: 42 })
+ *
+ * // Scoped respond — Web standard
+ * export async function POST(request: Request) {
+ *   const { response, emitter } = channel.respond(request)
+ *   emitter.emit('result', { rows: await queryDB() })
+ *   emitter.close()
+ *   return response
+ * }
+ *
+ * // Scoped respond — Node.js
+ * http.createServer((req, res) => {
+ *   const emitter = channel.respond(req, res)
+ *   emitter.emit('result', { rows: queryDB() })
+ *   emitter.close()
+ * })
  * ```
  */
 export function createChannel(
@@ -212,6 +243,82 @@ export function createChannel(
     res.on('close', onClose)
   }
 
+  function respondWeb(request: Request): WebRespondResult {
+    if (closed) throw new Error('Channel is closed')
+
+    // Suppress unused param lint — request is part of the public API signature
+    void request
+
+    const encoder = new TextEncoder()
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+    let streamClosed = false
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(ctrl) {
+        controller = ctrl
+      },
+      cancel() {
+        streamClosed = true
+      },
+    })
+
+    const emitter: ScopedEmitter = {
+      emit(type: string, payload: unknown): void {
+        if (streamClosed || !controller) return
+        const chunk = formatSSEEvent(type, payload)
+        try {
+          controller.enqueue(encoder.encode(chunk))
+        } catch {
+          streamClosed = true
+        }
+      },
+      close(): void {
+        if (streamClosed || !controller) return
+        streamClosed = true
+        try {
+          controller.close()
+        } catch {
+          // already closed
+        }
+      },
+    }
+
+    const response = new Response(stream, { headers: SSE_HEADERS })
+    return { response, emitter }
+  }
+
+  function respondNode(req: NodeRequest, res: NodeResponse): ScopedEmitter {
+    if (closed) throw new Error('Channel is closed')
+    if (res.writableEnded) throw new Error('ServerResponse is already ended')
+
+    // Suppress unused param lint — req is part of the public API signature
+    void req
+
+    res.writeHead(200, SSE_HEADERS)
+
+    const emitter: ScopedEmitter = {
+      emit(type: string, payload: unknown): void {
+        if (res.writableEnded) return
+        const chunk = formatSSEEvent(type, payload)
+        try {
+          res.write(chunk)
+        } catch {
+          // response already ended
+        }
+      },
+      close(): void {
+        if (res.writableEnded) return
+        try {
+          res.end()
+        } catch {
+          // already ended
+        }
+      },
+    }
+
+    return emitter
+  }
+
   return {
     connect(
       reqOrRequest: Request | NodeRequest,
@@ -224,27 +331,14 @@ export function createChannel(
       return connectWeb(reqOrRequest as Request)
     },
 
-    respond() {
-      // Scoped emitter — NOT in broadcast pool, NO heartbeats
-      let onchunk: ((chunk: string) => void) | undefined
-
-      const scoped = {
-        emit(type: string, payload: unknown): void {
-          const chunk = formatSSEEvent(type, payload)
-          if (onchunk) onchunk(chunk)
-        },
-        close(): void {
-          // nothing to clean up for a one-shot scoped emitter
-        },
-        get onchunk() {
-          return onchunk
-        },
-        set onchunk(fn: ((chunk: string) => void) | undefined) {
-          onchunk = fn
-        },
+    respond(
+      reqOrRequest: Request | NodeRequest,
+      res?: NodeResponse,
+    ): WebRespondResult | ScopedEmitter {
+      if (res !== undefined) {
+        return respondNode(reqOrRequest as NodeRequest, res)
       }
-
-      return scoped
+      return respondWeb(reqOrRequest as Request)
     },
 
     emit(type: string, payload: unknown): void {
@@ -273,5 +367,9 @@ export function createChannel(
 
       broadcastPool.clear()
     },
-  }
+
+    isClosed(): boolean {
+      return closed
+    },
+  } as Channel
 }

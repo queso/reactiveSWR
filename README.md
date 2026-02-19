@@ -183,7 +183,6 @@ channel.emit('user:updated', { id: '42', name: 'Alice' })
 ```typescript
 app.post('/api/query', (req, res) => {
   const emitter = channel.respond()
-  emitter.onchunk = (chunk) => res.write(chunk)
   emitter.emit('result', { rows: queryResults })
   emitter.close()
 })

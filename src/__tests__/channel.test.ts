@@ -439,25 +439,229 @@ describe('createChannel()', () => {
         channel.connect(new Request('http://localhost/api/events'))
       }).toThrow()
     })
-  })
 
-  describe('Req #8 - channel.respond() scoped emitter', () => {
-    it('channel.respond() should return an object with emit and close', () => {
+    it('channel.isClosed() should return false initially', () => {
       const channel = createChannel(testSchema)
-      const scoped = channel.respond()
-
-      expect(typeof scoped.emit).toBe('function')
-      expect(typeof scoped.close).toBe('function')
-
-      scoped.close()
+      expect(channel.isClosed()).toBe(false)
       channel.close()
     })
 
-    it('channel.respond() emitter should NOT receive channel.emit() broadcasts', async () => {
+    it('channel.isClosed() should return true after channel.close()', () => {
+      const channel = createChannel(testSchema)
+      channel.close()
+      expect(channel.isClosed()).toBe(true)
+    })
+  })
+
+  describe('Req #17 - channel.respond() scoped emitter (dual signature)', () => {
+    it('Web respond(request) should return { response, emitter }', async () => {
+      const channel = createChannel(testSchema)
+      const request = new Request('http://localhost/api/query')
+      const result = channel.respond(request)
+
+      expect(result).toHaveProperty('response')
+      expect(result).toHaveProperty('emitter')
+
+      const { response, emitter } = result as {
+        response: Response
+        emitter: { emit: (t: string, p: unknown) => void; close: () => void }
+      }
+      expect(response).toBeInstanceOf(Response)
+      expect(typeof emitter.emit).toBe('function')
+      expect(typeof emitter.close).toBe('function')
+
+      emitter.close()
+      channel.close()
+    })
+
+    it('Web respond(request) Response should have SSE headers', async () => {
+      const channel = createChannel(testSchema)
+      const request = new Request('http://localhost/api/query')
+      const { response, emitter } = channel.respond(request) as {
+        response: Response
+        emitter: { close: () => void }
+      }
+
+      expect(response.headers.get('Content-Type')).toContain(
+        'text/event-stream',
+      )
+      expect(response.headers.get('Cache-Control')).toBe('no-cache')
+      expect(response.headers.get('Connection')).toBe('keep-alive')
+
+      emitter.close()
+      channel.close()
+    })
+
+    it('Web respond emitter.emit() should write SSE wire format to the Response stream', async () => {
+      const channel = createChannel(testSchema)
+      const request = new Request('http://localhost/api/query')
+      const { response, emitter } = channel.respond(request) as {
+        response: Response
+        emitter: {
+          emit: (type: string, payload: unknown) => void
+          close: () => void
+        }
+      }
+
+      emitter.emit('user.updated', { id: 42, name: 'alice' })
+      emitter.close()
+
+      const text = await response.text()
+
+      expect(text).toContain('event: user.updated')
+      expect(text).toContain('data: ')
+      expect(text).toContain('"id":42')
+      expect(text).toContain('"name":"alice"')
+      expect(text).toMatch(/\n\n/)
+
+      channel.close()
+    })
+
+    it('Web respond emitter.close() should end the Response stream', async () => {
+      const channel = createChannel(testSchema)
+      const request = new Request('http://localhost/api/query')
+      const { response, emitter } = channel.respond(request) as {
+        response: Response
+        emitter: {
+          emit: (type: string, payload: unknown) => void
+          close: () => void
+        }
+      }
+
+      emitter.emit('user.updated', { id: 1 })
+      emitter.close()
+
+      // Reading the full body should complete (stream is closed)
+      const body = await response.text()
+      expect(body).toContain('event: user.updated')
+
+      channel.close()
+    })
+
+    it('Node.js respond(req, res) should return a ScopedEmitter', () => {
       const channel = createChannel(testSchema)
 
-      // Scoped emitter (respond) is NOT in the broadcast pool
-      const scoped = channel.respond()
+      const mockReq = {
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+      const mockRes = {
+        writeHead: mock(
+          (_status: number, _headers: Record<string, string>) => {},
+        ),
+        write: mock((_chunk: string) => {}),
+        end: mock(() => {}),
+        writableEnded: false,
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+
+      const emitter = channel.respond(mockReq, mockRes)
+
+      expect(typeof emitter.emit).toBe('function')
+      expect(typeof emitter.close).toBe('function')
+      // Should NOT have response property (that is for Web path only)
+      expect(emitter).not.toHaveProperty('response')
+
+      emitter.close()
+      channel.close()
+    })
+
+    it('Node.js respond should call writeHead with SSE headers', () => {
+      const channel = createChannel(testSchema)
+
+      const writeHeadCalls: Array<[number, Record<string, string>]> = []
+      const mockReq = {
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+      const mockRes = {
+        writeHead: mock((status: number, headers: Record<string, string>) => {
+          writeHeadCalls.push([status, headers])
+        }),
+        write: mock(() => {}),
+        end: mock(() => {}),
+        writableEnded: false,
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+
+      const emitter = channel.respond(mockReq, mockRes)
+
+      expect(writeHeadCalls.length).toBe(1)
+      const [status, headers] = writeHeadCalls[0] as [
+        number,
+        Record<string, string>,
+      ]
+      expect(status).toBe(200)
+      expect(headers['Content-Type']).toContain('text/event-stream')
+      expect(headers['Cache-Control']).toBe('no-cache')
+      expect(headers.Connection).toBe('keep-alive')
+
+      emitter.close()
+      channel.close()
+    })
+
+    it('Node.js respond emitter.emit() should write SSE wire format to res', () => {
+      const channel = createChannel(testSchema)
+
+      const written: string[] = []
+      const mockReq = {
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+      const mockRes = {
+        writeHead: mock(() => {}),
+        write: mock((chunk: string) => {
+          written.push(chunk)
+        }),
+        end: mock(() => {}),
+        writableEnded: false,
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+
+      const emitter = channel.respond(mockReq, mockRes)
+      emitter.emit('user.updated', { id: 7 })
+
+      expect(written.length).toBe(1)
+      expect(written[0]).toContain('event: user.updated')
+      expect(written[0]).toContain('data: ')
+      expect(written[0]).toContain('"id":7')
+      expect(written[0]).toMatch(/\n\n$/)
+
+      emitter.close()
+      channel.close()
+    })
+
+    it('Node.js respond emitter.close() should call res.end()', () => {
+      const channel = createChannel(testSchema)
+
+      const endMock = mock(() => {})
+      const mockReq = {
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+      const mockRes = {
+        writeHead: mock(() => {}),
+        write: mock(() => {}),
+        end: endMock,
+        writableEnded: false,
+        on: mock((_event: string, _cb: () => void) => {}),
+      }
+
+      const emitter = channel.respond(mockReq, mockRes)
+      emitter.close()
+
+      expect(endMock).toHaveBeenCalled()
+      channel.close()
+    })
+
+    it('respond() scoped emitter should NOT be in the broadcast pool', async () => {
+      const channel = createChannel(testSchema)
+
+      // Create a scoped emitter via Web respond
+      const request = new Request('http://localhost/api/query')
+      const { emitter } = channel.respond(request) as {
+        response: Response
+        emitter: {
+          emit: (type: string, payload: unknown) => void
+          close: () => void
+        }
+      }
 
       // Connect a normal broadcast client
       const r = channel.connect(new Request('http://localhost/api/events'))
@@ -475,44 +679,46 @@ describe('createChannel()', () => {
       const text = decoder.decode(value)
 
       reader.cancel()
-      scoped.close()
+      emitter.close()
       channel.close()
 
       expect(text).toContain('event: user.updated')
     })
 
-    it('channel.respond() scoped emit should send SSE wire format', async () => {
-      const channel = createChannel(testSchema)
-      const scoped = channel.respond()
+    it('respond() scoped emitter should NOT receive heartbeats', async () => {
+      const channel = createChannel(testSchema, { heartbeatInterval: 50 })
+      const request = new Request('http://localhost/api/query')
+      const { response, emitter } = channel.respond(request) as {
+        response: Response
+        emitter: {
+          emit: (type: string, payload: unknown) => void
+          close: () => void
+        }
+      }
 
-      // Capture what scoped.emit writes
-      // The scoped emitter returns a Response or has a stream we can read
-      const chunks: string[] = []
-      scoped.onchunk = (chunk: string) => chunks.push(chunk)
+      // Wait longer than the heartbeat interval
+      await new Promise((resolve) => setTimeout(resolve, 120))
 
-      // Alternatively: if respond() returns a stream, read from it
-      // Implementation detail: respond() may return { emit, close, stream }
-      // We test the minimum: emit doesn't throw
-      expect(() => {
-        scoped.emit('user.updated', { id: 7 })
-      }).not.toThrow()
+      // Emit one event and close
+      emitter.emit('result', { done: true })
+      emitter.close()
 
-      scoped.close()
+      const text = await response.text()
+
+      // Should contain our event but NOT heartbeat comments
+      expect(text).toContain('event: result')
+      expect(text).not.toContain(': heartbeat')
+
       channel.close()
     })
 
-    it('channel.respond() should NOT have heartbeats', async () => {
-      // respond() is for one-shot responses — no timer overhead
-      const channel = createChannel(testSchema, { heartbeatInterval: 50 })
-      const scoped = channel.respond()
-
-      // The scoped emitter should not start a new heartbeat interval
-      // We can verify this by ensuring no additional timers were set
-      // beyond the one shared channel timer (tested in heartbeat section)
-      expect(scoped).not.toHaveProperty('heartbeatInterval')
-
-      scoped.close()
+    it('respond() after channel.close() should throw', () => {
+      const channel = createChannel(testSchema)
       channel.close()
+
+      expect(() => {
+        channel.respond(new Request('http://localhost/api/query'))
+      }).toThrow()
     })
   })
 

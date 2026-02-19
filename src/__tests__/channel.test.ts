@@ -290,6 +290,59 @@ describe('createChannel()', () => {
       }).not.toThrow()
     })
 
+    it('heartbeat timer should stop when all clients disconnect', async () => {
+      // Patch setInterval/clearInterval to track timer lifecycle
+      const originalSetInterval = globalThis.setInterval
+      const originalClearInterval = globalThis.clearInterval
+
+      let activeTimers = 0
+      globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+        activeTimers++
+        return originalSetInterval(...args)
+      }) as typeof setInterval
+      globalThis.clearInterval = ((
+        ...args: Parameters<typeof clearInterval>
+      ) => {
+        activeTimers--
+        return originalClearInterval(...args)
+      }) as typeof clearInterval
+
+      try {
+        // Dynamically re-import so the module captures our patched timers
+        // Use a cache-busting query param to force a fresh module
+        const mod = await import(`../server/index.ts?bust=${Date.now()}`)
+        const localCreateChannel = (mod as Record<string, unknown>)
+          .createChannel as typeof createChannel
+
+        const channel = localCreateChannel(testSchema, {
+          heartbeatInterval: 50,
+        })
+
+        // Connect a client -- heartbeat starts
+        const r1 = channel.connect(new Request('http://localhost/api/events'))
+        expect(activeTimers).toBe(1)
+
+        // Cancel the client stream -- heartbeat should stop
+        await r1.body?.cancel()
+        expect(activeTimers).toBe(0)
+
+        // Connect a new client -- heartbeat starts fresh
+        const r2 = channel.connect(new Request('http://localhost/api/events'))
+        expect(activeTimers).toBe(1)
+
+        // Verify the new client actually receives heartbeats
+        const chunks = await collectChunks(r2.body as ReadableStream, 2)
+        const allText = chunks.join('')
+        expect(allText).toContain(': heartbeat')
+
+        channel.close()
+        expect(activeTimers).toBe(0)
+      } finally {
+        globalThis.setInterval = originalSetInterval
+        globalThis.clearInterval = originalClearInterval
+      }
+    })
+
     it('heartbeat should use a single shared setInterval (not one per client)', async () => {
       // Verify single-timer behavior functionally: both clients receive
       // heartbeats at the same cadence from the shared interval.

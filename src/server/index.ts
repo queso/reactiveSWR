@@ -173,6 +173,7 @@ export function createChannel(
         const ok = writeToClient(client, HEARTBEAT_COMMENT)
         if (!ok) broadcastPool.delete(client)
       }
+      if (broadcastPool.size === 0) stopHeartbeat()
     }, heartbeatMs)
   }
 
@@ -215,6 +216,7 @@ export function createChannel(
         if (clientRef) {
           clientRef.closed = true
           broadcastPool.delete(clientRef)
+          if (broadcastPool.size === 0) stopHeartbeat()
         }
       },
     })
@@ -238,6 +240,7 @@ export function createChannel(
     // Listen for disconnect on both req and res
     const onClose = () => {
       broadcastPool.delete(client)
+      if (broadcastPool.size === 0) stopHeartbeat()
     }
     req.on('close', onClose)
     res.on('close', onClose)
@@ -355,6 +358,7 @@ export function createChannel(
       for (const client of dead) {
         broadcastPool.delete(client)
       }
+      if (dead.length > 0 && broadcastPool.size === 0) stopHeartbeat()
     },
 
     close(): void {

@@ -380,8 +380,13 @@ afterEach(() => {
  * Helper to flush microtasks so that createFetchTransport's internal
  * async fetch() call executes against our fetch mock.
  */
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => originalSetTimeout(resolve, 0))
+async function flushMicrotasks(): Promise<void> {
+  // Multiple ticks needed: createFetchTransport chains
+  // Promise.resolve().then(async () => { await fetch(...) })
+  // which requires several event loop iterations to fully settle.
+  for (let i = 0; i < 4; i++) {
+    await new Promise((resolve) => originalSetTimeout(resolve, 0))
+  }
 }
 
 describe('SSEProvider Transport Selection', () => {

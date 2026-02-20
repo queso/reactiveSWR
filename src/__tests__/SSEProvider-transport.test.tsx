@@ -243,13 +243,12 @@ function installFetchMock() {
 }
 
 function cleanupFetchMock() {
-  for (const controller of openStreamControllers) {
-    try {
-      controller.close()
-    } catch {
-      /* already closed */
-    }
-  }
+  // Intentionally do NOT close stream controllers here. Closing them triggers
+  // a "done" signal on the fetch transport's reader, which fires onerror,
+  // which triggers SSEProvider's reconnection logic. By the time that async
+  // chain runs, afterEach has already restored real setTimeout/fetch, so the
+  // reconnection would call the real (or next test's) fetch — causing
+  // cross-test contamination. Leaving streams open lets GC handle them.
   openStreamControllers = []
   fetchCalls = []
   globalThis.fetch = originalFetch
@@ -377,16 +376,30 @@ afterEach(() => {
 })
 
 /**
+ * Wait for a condition to become true, polling with real timers.
+ * Used instead of fixed microtask flushing because createFetchTransport's
+ * internal `Promise.resolve().then(async () => { await fetch(...) })` chain
+ * settles at different speeds on different platforms (macOS vs Linux CI).
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 500,
+): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitFor timed out after ${timeoutMs}ms`)
+    }
+    await new Promise((resolve) => originalSetTimeout(resolve, 2))
+  }
+}
+
+/**
  * Helper to flush microtasks so that createFetchTransport's internal
  * async fetch() call executes against our fetch mock.
  */
 async function flushMicrotasks(): Promise<void> {
-  // Multiple ticks needed: createFetchTransport chains
-  // Promise.resolve().then(async () => { await fetch(...) })
-  // which requires several event loop iterations to fully settle.
-  for (let i = 0; i < 4; i++) {
-    await new Promise((resolve) => originalSetTimeout(resolve, 0))
-  }
+  await new Promise((resolve) => originalSetTimeout(resolve, 50))
 }
 
 describe('SSEProvider Transport Selection', () => {
@@ -479,8 +492,8 @@ describe('SSEProvider Transport Selection', () => {
       // Should NOT have created an EventSource
       expect(MockEventSource.instances.length).toBe(0)
 
-      // Flush microtasks so the internal fetch() executes
-      await flushMicrotasks()
+      // Wait for the internal async fetch() to execute
+      await waitFor(() => fetchCalls.length >= 1)
 
       // Should have called fetch with correct options
       expect(fetchCalls.length).toBe(1)
@@ -505,7 +518,7 @@ describe('SSEProvider Transport Selection', () => {
 
       expect(MockEventSource.instances.length).toBe(0)
 
-      await flushMicrotasks()
+      await waitFor(() => fetchCalls.length >= 1)
       expect(fetchCalls.length).toBe(1)
       // Body object is JSON.stringified by createFetchTransport
       expect(fetchCalls[0].init?.body).toBe(
@@ -530,7 +543,7 @@ describe('SSEProvider Transport Selection', () => {
 
       expect(MockEventSource.instances.length).toBe(0)
 
-      await flushMicrotasks()
+      await waitFor(() => fetchCalls.length >= 1)
       expect(fetchCalls.length).toBe(1)
       // Headers are passed through as a headers object in the fetch init
       const headers = fetchCalls[0].init?.headers as Record<string, string>
@@ -557,7 +570,7 @@ describe('SSEProvider Transport Selection', () => {
         ),
       )
 
-      await flushMicrotasks()
+      await waitFor(() => fetchCalls.length >= 1)
       expect(fetchCalls.length).toBe(1)
       expect(fetchCalls[0].url).toBe('http://localhost:3000/events')
       expect(fetchCalls[0].init?.method).toBe('PUT')
@@ -585,7 +598,7 @@ describe('SSEProvider Transport Selection', () => {
         ),
       )
 
-      await flushMicrotasks()
+      await waitFor(() => fetchCalls.length >= 1)
       expect(fetchCalls.length).toBe(1)
       // createFetchTransport defaults to POST when body is provided
       expect(fetchCalls[0].init?.method).toBe('POST')

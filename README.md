@@ -219,7 +219,7 @@ The `events` mapping is automatically derived from the schema's `key`, `update`,
 
 If you prefer not to use a schema, you can define event mappings manually. This is the original API and remains fully supported.
 
-```typescript
+```tsx
 const config: SSEConfig = {
   url: '/api/events',
   events: {
@@ -556,7 +556,7 @@ test('updates order when SSE event received', async () => {
 const mock = mockSSE(url: string)
 
 mock.sendEvent({ type: string, payload: unknown })  // Send a typed event
-mock.sendSSE(data: unknown)                          // Send raw JSON data (convenience for createSSEParser tests)
+mock.sendSSE(data: unknown)                          // Send data as SSE wire format — data: <json>\n\n (convenience for createSSEParser tests)
 mock.sendRaw(text: string)                           // Send raw SSE wire format
 mock.close()                                         // Simulate connection close
 mock.getConnection()                                 // Get the mock EventSource

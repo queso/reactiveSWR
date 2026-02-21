@@ -79,6 +79,7 @@ function getTransportFactoryId(factory: Function): number {
 function computeConnectionKey<T>(
   url: string,
   options?: UseSSEStreamOptions<T>,
+  nonSerializableKeyRef?: { current: string | null },
 ): string {
   if (!options) return url
 
@@ -94,15 +95,22 @@ function computeConnectionKey<T>(
   if (method === undefined && body === undefined && headers === undefined)
     return url
 
-  // Non-serializable bodies -> never reuse
+  // Non-serializable bodies -> use stable per-instance key from ref
   if (body !== undefined && isNonSerializable(body)) {
-    return `${url}::${++nonSerializableCounter}`
+    return (
+      nonSerializableKeyRef?.current ?? `${url}::ns:${++nonSerializableCounter}`
+    )
   }
 
   const parts = [url]
   if (method !== undefined) parts.push(`method:${method}`)
   if (body !== undefined) parts.push(`body:${JSON.stringify(body)}`)
-  if (headers !== undefined) parts.push(`headers:${JSON.stringify(headers)}`)
+  if (headers !== undefined) {
+    const sortedHeaders = Object.fromEntries(
+      Object.entries(headers).sort(([a], [b]) => a.localeCompare(b)),
+    )
+    parts.push(`headers:${JSON.stringify(sortedHeaders)}`)
+  }
   return parts.join('::')
 }
 
@@ -247,9 +255,16 @@ export function useSSEStream<T = unknown>(
   // Track the key this hook instance has incremented refCount for.
   // This ensures cleanup decrements the correct entry even if URL changes.
   const subscribedKeyRef = useRef<string | null>(null)
+  // Stable key for non-serializable bodies — generated once per mount so
+  // Strict Mode double-renders and concurrent discarded renders don't leak.
+  const nonSerializableKeyRef = useRef<string | null>(null)
   const transform = options?.transform
 
-  const key = computeConnectionKey(url, options)
+  const key = computeConnectionKey(url, options, nonSerializableKeyRef)
+  // Store back so subsequent renders of this instance reuse the same key
+  if (nonSerializableKeyRef.current === null && key.includes('::ns:')) {
+    nonSerializableKeyRef.current = key
+  }
 
   let entry = streams.get(key) as StreamEntry<T> | undefined
 

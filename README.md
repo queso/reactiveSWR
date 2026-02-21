@@ -564,7 +564,7 @@ mock.getConnection()                                 // Get the mock EventSource
 mockSSE.restore()                                    // Restore real EventSource and fetch
 ```
 
-`sendSSE(data)` is a convenience wrapper that calls `sendRaw(\`data: ${JSON.stringify(data)}\n\n\`)`. It simplifies tests for consumers using `createSSEParser` who work with raw SSE wire format.
+`sendSSE(data)` is a convenience wrapper that formats `data` as `data: <json>\n\n` and sends it via `sendRaw()`. It simplifies tests for consumers using `createSSEParser` who work with raw SSE wire format.
 
 `mockSSE` automatically intercepts both `EventSource` and `fetch` for registered URLs, so your tests work regardless of which transport the component uses internally.
 

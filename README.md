@@ -570,8 +570,9 @@ mockSSE.restore()                                    // Restore real EventSource
 
 ## Documentation
 
-- [API Reference](./docs/API.md) - Complete API documentation
-- [Specification](./docs/SPEC.md) - Technical specification
+- [API Reference](./docs/API.md) - Complete API documentation for all entry points
+- [Specification](./docs/SPEC.md) - Technical specification and architecture
+- [Changelog](./CHANGELOG.md) - Release notes and version history
 
 ## Inspiration
 

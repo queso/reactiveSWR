@@ -70,15 +70,11 @@ export function createFetchTransport(
     },
   }
 
-  let receivedData = false
-
   const parser = createSSEParser({
     onEvent(event) {
       if (readyState === CLOSED) return
 
-      receivedData = true
-
-      if (event.id) {
+      if (event.id !== undefined) {
         lastEventId = event.id
       }
 
@@ -170,7 +166,7 @@ export function createFetchTransport(
         .read()
         .then(({ done, value }) => {
           if (done) {
-            if (readyState !== CLOSED && !receivedData) {
+            if (readyState !== CLOSED) {
               readyState = CLOSED
               transport.onerror?.(new Event('error'))
             }
@@ -180,10 +176,14 @@ export function createFetchTransport(
           const text = decoder.decode(value, { stream: true })
           parser.feed(text)
           // Schedule next read as a macrotask so external code can interleave
-          setTimeout(readNext, 25)
+          setTimeout(readNext, 0)
         })
-        .catch(() => {
-          // Stream read error (e.g., abort)
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'AbortError') return
+          if (readyState !== CLOSED) {
+            readyState = CLOSED
+            transport.onerror?.(new Event('error'))
+          }
         })
     }
 

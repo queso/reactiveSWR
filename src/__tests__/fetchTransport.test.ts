@@ -138,9 +138,14 @@ describe('createFetchTransport', () => {
     })
 
     it('should become OPEN (1) on successful connection', async () => {
+      // Use a long-lived stream that won't close before we check readyState
       globalThis.fetch = mock(() =>
         Promise.resolve(
-          createMockResponse(200, ['data: hello\n\n'], { delayMs: 5 }),
+          createMockResponse(
+            200,
+            ['data: hello\n\n', 'data: world\n\n', 'data: keep-alive\n\n'],
+            { delayMs: 50 },
+          ),
         ),
       ) as typeof fetch
 
@@ -337,12 +342,17 @@ describe('createFetchTransport', () => {
 
   describe('removeEventListener', () => {
     it('should stop dispatching events to removed listeners', async () => {
+      // Use a delay between chunks so we can remove the listener after the first event
       globalThis.fetch = mock(() =>
         Promise.resolve(
-          createMockResponse(200, [
-            'event: update\ndata: first\n\n',
-            'event: update\ndata: second\n\n',
-          ]),
+          createMockResponse(
+            200,
+            [
+              'event: update\ndata: first\n\n',
+              'event: update\ndata: second\n\n',
+            ],
+            { delayMs: 30 },
+          ),
         ),
       ) as typeof fetch
 
@@ -350,12 +360,12 @@ describe('createFetchTransport', () => {
       const transport = createFetchTransport('http://localhost/events')
       transport.addEventListener('update', listener)
 
-      await flushAsync(20)
+      await flushAsync(40)
 
       // Remove after first event
       transport.removeEventListener('update', listener)
 
-      await flushAsync(50)
+      await flushAsync(60)
 
       // Listener should have only received the first event
       expect(listener).toHaveBeenCalledTimes(1)

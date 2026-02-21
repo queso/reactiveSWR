@@ -402,6 +402,22 @@ export function SSEProvider({
         { type: 'transport_error', payload: null },
         error,
       )
+      // Install a no-op closed transport to prevent re-entry on next render
+      eventSourceRef.current = {
+        readyState: CLOSED,
+        onmessage: null,
+        onerror: null,
+        onopen: null,
+        close() {},
+        addEventListener() {},
+        removeEventListener() {},
+      }
+      currentUrlRef.current = url
+      updateStatus({
+        connected: false,
+        connecting: false,
+        error: error instanceof Error ? error : new Error(String(error)),
+      })
       return
     }
 

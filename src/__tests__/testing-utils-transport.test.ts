@@ -156,17 +156,22 @@ describe('mockSSE transport-aware', () => {
       expect(done).toBe(false)
 
       const text = decoder.decode(value)
-      // SSE wire format: "data: ...\n\n"
+      // SSE wire format: "event: <type>\ndata: <json>\n\n"
+      expect(text).toContain('event:')
       expect(text).toContain('data:')
       expect(text).toContain('\n\n')
 
-      // The data field should contain JSON with our event
+      // The event field should contain the event type
+      const eventMatch = text.match(/event:\s*(.+)\n/)
+      expect(eventMatch).not.toBeNull()
+      expect(eventMatch?.[1]).toBe('update')
+
+      // The data field should contain JSON with the payload only
       const dataMatch = text.match(/data:\s*(.+)\n/)
       expect(dataMatch).not.toBeNull()
 
       const parsed = JSON.parse(dataMatch?.[1])
-      expect(parsed.type).toBe('update')
-      expect(parsed.payload).toEqual({ id: 42 })
+      expect(parsed).toEqual({ id: 42 })
     })
 
     it('should deliver multiple events as separate SSE chunks', async () => {

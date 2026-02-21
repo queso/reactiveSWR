@@ -181,11 +181,20 @@ channel.emit('user:updated', { id: '42', name: 'Alice' })
 **Scoped emitters** for request-response patterns (e.g., streaming query results):
 
 ```typescript
+// Node.js
 app.post('/api/query', (req, res) => {
-  const emitter = channel.respond()
+  const emitter = channel.respond(req, res)
   emitter.emit('result', { rows: queryResults })
   emitter.close()
 })
+
+// Web standard (Fetch API / edge runtimes)
+export async function POST(request: Request) {
+  const { response, emitter } = channel.respond(request)
+  emitter.emit('result', { rows: await queryDB() })
+  emitter.close()
+  return response
+}
 ```
 
 **Shutdown** all connections:

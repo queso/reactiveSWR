@@ -263,34 +263,20 @@ export function useSSEStream<T = unknown>(
     entry = createStream<T>(url, key, transform, options)
   }
 
-  // Synchronous reference counting: increment when subscribing to a new key
-  // This happens during render to avoid race conditions with effect cleanup
-  if (subscribedKeyRef.current !== key) {
-    // Decrement refCount for the old key (if any) and close if no longer used
-    const oldKey = subscribedKeyRef.current
-    if (oldKey !== null) {
-      const oldEntry = streams.get(oldKey)
-      if (oldEntry) {
-        oldEntry.refCount--
-        if (oldEntry.refCount <= 0) {
-          closeStream(oldKey)
-        }
-      }
-    }
-
-    // Increment refCount for the new key
-    entry.refCount++
-    subscribedKeyRef.current = key
-  }
-
   // Update transform on every render (ref pattern avoids reconnection)
   entry.transform = transform
 
-  // Cleanup on unmount (client-side only)
-  // useEffect doesn't run during SSR/renderToString, which is fine
-  // because SSR doesn't need cleanup (no persistent connections)
+  // Reference counting in useEffect so mutations only happen on commit,
+  // not during speculative renders that React concurrent mode may discard.
   useEffect(() => {
-    // Return cleanup function that decrements refCount for the subscribed key
+    // Increment refCount for the committed key
+    const committedEntry = streams.get(key)
+    if (committedEntry) {
+      committedEntry.refCount++
+    }
+    subscribedKeyRef.current = key
+
+    // Cleanup: decrement refCount on unmount or key change
     return () => {
       const keyToCleanup = subscribedKeyRef.current
       if (keyToCleanup !== null) {
@@ -304,7 +290,7 @@ export function useSSEStream<T = unknown>(
         subscribedKeyRef.current = null
       }
     }
-  }, [])
+  }, [key])
 
   return {
     data: entry.data,

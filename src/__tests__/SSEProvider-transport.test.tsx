@@ -886,6 +886,12 @@ describe('SSEProvider Transport Selection', () => {
       expect(disconnectCount).toBeGreaterThanOrEqual(1)
     })
 
+    // NOTE: This test relies on SSEProvider's intentional design of using a mutable
+    // status object (Object.assign on statusRef.current) for SSR compatibility.
+    // capturedStatus holds a reference to the same object that SSEProvider mutates,
+    // so changes after renderToString are visible through the captured reference.
+    // If SSEProvider switches to immutable state, this test must be rewritten
+    // to use a DOM-based renderer (e.g., @testing-library/react) instead.
     it('should update status correctly with non-EventSource transport', () => {
       let capturedStatus: SSEStatus | null = null
       const transports: ReturnType<typeof createMockTransport>[] = []

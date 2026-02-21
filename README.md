@@ -313,7 +313,7 @@ By default, reactiveSWR uses the browser's `EventSource` API, which only support
 
 #### POST with JSON body
 
-```typescript
+```tsx
 import { useSSEStream } from 'reactive-swr'
 
 function AIChat({ question }: { question: string }) {
@@ -519,7 +519,7 @@ function LivePrice({ symbol }: { symbol: string }) {
 
 The library provides `mockSSE` for testing components with SSE:
 
-```typescript
+```tsx
 import { mockSSE } from 'reactive-swr/testing'
 
 test('updates order when SSE event received', async () => {

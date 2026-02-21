@@ -38,10 +38,11 @@ describe('reactiveSWR types', () => {
       events: {},
     }
 
-    // @ts-expect-error - SSEConfig requires 'events' field
-    const _missingEvents: SSEConfig = {
+    // SSEConfig now allows url-only (matches SSEConfigWithNeither variant)
+    const _noEventsOrSchema: SSEConfig = {
       url: 'http://localhost:3000/events',
     }
+    expect(_noEventsOrSchema.url).toBe('http://localhost:3000/events')
 
     // Valid config with all optional fields populated
     const fullConfig: SSEConfig = {

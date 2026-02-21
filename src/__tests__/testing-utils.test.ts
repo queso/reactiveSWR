@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
  */
 
 describe('mockSSE', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: dynamically imported testing utility
   let mockSSE: any
   let originalEventSource: typeof EventSource | undefined
 
@@ -62,14 +63,14 @@ describe('mockSSE', () => {
 
   describe('readyState transitions', () => {
     it('should start in CONNECTING state', () => {
-      const mock = mockSSE('/api/events')
+      const _mock = mockSSE('/api/events')
       const eventSource = new EventSource('/api/events')
 
       expect(eventSource.readyState).toBe(EventSource.CONNECTING)
     })
 
     it('should transition to OPEN state after connection', () => {
-      const mock = mockSSE('/api/events')
+      const _mock = mockSSE('/api/events')
       const eventSource = new EventSource('/api/events')
 
       // Simulate connection open (implementation may auto-transition or require manual trigger)
@@ -109,7 +110,7 @@ describe('mockSSE', () => {
       expect(receivedEvent).not.toBeNull()
       expect(receivedEvent?.data).toBeDefined()
 
-      const parsedData = JSON.parse(receivedEvent!.data)
+      const parsedData = JSON.parse(receivedEvent?.data)
       expect(parsedData.type).toBe('order:updated')
       expect(parsedData.payload).toEqual({ id: '123', status: 'shipped' })
     })
@@ -132,7 +133,7 @@ describe('mockSSE', () => {
       expect(receivedEvent).not.toBeNull()
       expect(receivedEvent?.data).toBeDefined()
 
-      const parsedData = JSON.parse(receivedEvent!.data)
+      const parsedData = JSON.parse(receivedEvent?.data)
       expect(parsedData.type).toBe('order:updated')
       expect(parsedData.payload).toEqual({ id: '123', status: 'shipped' })
     })
@@ -149,9 +150,9 @@ describe('mockSSE', () => {
       mock.sendEvent({ type: 'test', payload: { value: 42 } })
 
       expect(typeof receivedData).toBe('string')
-      expect(() => JSON.parse(receivedData!)).not.toThrow()
+      expect(() => JSON.parse(receivedData as string)).not.toThrow()
 
-      const parsed = JSON.parse(receivedData!)
+      const parsed = JSON.parse(receivedData as string)
       expect(parsed.type).toBe('test')
       expect(parsed.payload.value).toBe(42)
     })
@@ -220,8 +221,8 @@ describe('mockSSE', () => {
       expect(received1).not.toBeNull()
       expect(received2).not.toBeNull()
 
-      const data1 = JSON.parse(received1!.data)
-      const data2 = JSON.parse(received2!.data)
+      const data1 = JSON.parse(received1?.data)
+      const data2 = JSON.parse(received2?.data)
 
       expect(data1.payload.source).toBe(1)
       expect(data2.payload.source).toBe(2)
@@ -254,7 +255,7 @@ describe('mockSSE', () => {
 
     it('should isolate close calls to correct mock', () => {
       const mock1 = mockSSE('/api/events1')
-      const mock2 = mockSSE('/api/events2')
+      const _mock2 = mockSSE('/api/events2')
 
       const eventSource1 = new EventSource('/api/events1')
       const eventSource2 = new EventSource('/api/events2')
@@ -268,7 +269,7 @@ describe('mockSSE', () => {
 
   describe('restore', () => {
     it('should restore original EventSource constructor', () => {
-      const mock = mockSSE('/api/events')
+      const _mock = mockSSE('/api/events')
 
       // Create mock instance
       const mockInstance = new EventSource('/api/events')
@@ -354,7 +355,7 @@ describe('mockSSE', () => {
       const mock = mockSSE('/api/events')
       const eventSource = new EventSource('/api/events')
 
-      let receivedPayload: any = null
+      let receivedPayload: Record<string, unknown> | null = null
       eventSource.onmessage = (event: MessageEvent) => {
         const parsed = JSON.parse(event.data)
         receivedPayload = parsed.payload

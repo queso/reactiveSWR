@@ -12,12 +12,17 @@
     "./testing": {
       "import": "./dist/testing/index.js",
       "types": "./dist/testing/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
     }
   },
   "sideEffects": false,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target browser",
+    "build": "bun build src/index.ts src/testing/index.ts src/server/index.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json",
+    "prepare": "bun run build",
     "test": "bun test",
     "test:e2e": "bunx playwright test",
     "lint": "biome check .",

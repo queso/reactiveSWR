@@ -480,14 +480,17 @@ describe('useSSEEvent', () => {
         createElement(
           SSEProvider,
           { config: extendedConfig },
-          createElement(LatestHandlerConsumer, { multiplier: currentMultiplier }),
+          createElement(LatestHandlerConsumer, {
+            multiplier: currentMultiplier,
+          }),
         ),
       )
 
       // Simulate another event - the ref pattern should use the LATEST handler
       // Note: In SSR each renderToString creates a new context, so we test that
       // the pattern correctly updates handlerRef.current on each render
-      const latestSource = MockEventSource.instances[MockEventSource.instances.length - 1]
+      const latestSource =
+        MockEventSource.instances[MockEventSource.instances.length - 1]
       latestSource.simulateEvent('calc.event', { value: 5 })
       expect(receivedValues).toContain(50)
     })

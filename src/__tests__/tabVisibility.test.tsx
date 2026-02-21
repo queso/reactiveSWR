@@ -412,7 +412,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
 
       // Reconnect timer is scheduled
       expect(pendingTimers.size).toBeGreaterThan(0)
-      const timersBefore = pendingTimers.size
+      const _timersBefore = pendingTimers.size
 
       // Note: This test may need adjustment based on implementation
       // If visibility triggers immediate reconnect and cancels timer, that's also valid
@@ -606,7 +606,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
 
       // Reconnect via backoff
       advanceTimersByTime(1000)
-      expect(capturedStatus!.reconnectAttempt).toBe(1)
+      expect(capturedStatus?.reconnectAttempt).toBe(1)
 
       // That also fails
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
@@ -618,7 +618,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
       MockEventSource.getLastInstance()?.simulateOpen()
 
       // Attempt count should be reset
-      expect(capturedStatus!.reconnectAttempt).toBe(0)
+      expect(capturedStatus?.reconnectAttempt).toBe(0)
     })
 
     it('should call onConnect callback on visibility-triggered reconnection success', async () => {
@@ -783,23 +783,23 @@ describe('SSEProvider Tab Visibility Handling', () => {
 
       // Initial connection
       MockEventSource.getLastInstance()?.simulateOpen()
-      expect(capturedStatus!.connected).toBe(true)
-      expect(capturedStatus!.connecting).toBe(false)
+      expect(capturedStatus?.connected).toBe(true)
+      expect(capturedStatus?.connecting).toBe(false)
 
       // Connection fails
       MockEventSource.getLastInstance()?.simulateConnectionFailure()
-      expect(capturedStatus!.connected).toBe(false)
-      expect(capturedStatus!.error).not.toBeNull()
+      expect(capturedStatus?.connected).toBe(false)
+      expect(capturedStatus?.error).not.toBeNull()
 
       // Reconnect via visibility
       dispatchVisibilityChange('visible')
-      expect(capturedStatus!.connecting).toBe(true)
+      expect(capturedStatus?.connecting).toBe(true)
 
       // Reconnect succeeds
       MockEventSource.getLastInstance()?.simulateOpen()
-      expect(capturedStatus!.connected).toBe(true)
-      expect(capturedStatus!.connecting).toBe(false)
-      expect(capturedStatus!.error).toBeNull()
+      expect(capturedStatus?.connected).toBe(true)
+      expect(capturedStatus?.connecting).toBe(false)
+      expect(capturedStatus?.error).toBeNull()
     })
   })
 })

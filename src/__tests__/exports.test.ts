@@ -48,6 +48,25 @@ describe('Package exports', () => {
       expect(exports.useSSEStream).toBeDefined()
       expect(typeof exports.useSSEStream).toBe('function')
     })
+
+    it('should export createSSEParser factory function', async () => {
+      const exports = await import('../index.ts')
+
+      expect(exports.createSSEParser).toBeDefined()
+      expect(typeof exports.createSSEParser).toBe('function')
+    })
+
+    it('should return an object with feed and reset methods from createSSEParser', async () => {
+      const { createSSEParser } = await import('../index.ts')
+
+      const parser = createSSEParser({
+        onEvent: () => {},
+      })
+
+      expect(parser).toBeDefined()
+      expect(typeof parser.feed).toBe('function')
+      expect(typeof parser.reset).toBe('function')
+    })
   })
 
   describe('Type exports from main entry point', () => {
@@ -91,7 +110,10 @@ describe('Package exports', () => {
     })
 
     it('should export EventMapping type', async () => {
-      const mapping: import('../index.ts').EventMapping<{ id: number }, unknown> = {
+      const mapping: import('../index.ts').EventMapping<
+        { id: number },
+        unknown
+      > = {
         key: '/api/items',
         update: 'set',
       }
@@ -122,12 +144,14 @@ describe('Package exports', () => {
 
     it('should export UpdateStrategy type', async () => {
       // Test all variants of UpdateStrategy
-      const setStrategy: import('../index.ts').UpdateStrategy<string, string> = 'set'
-      const refetchStrategy: import('../index.ts').UpdateStrategy<string, string> = 'refetch'
-      const fnStrategy: import('../index.ts').UpdateStrategy<string, string[]> = (current, payload) => [
-        ...(current ?? []),
-        payload,
-      ]
+      const setStrategy: import('../index.ts').UpdateStrategy<string, string> =
+        'set'
+      const refetchStrategy: import('../index.ts').UpdateStrategy<
+        string,
+        string
+      > = 'refetch'
+      const fnStrategy: import('../index.ts').UpdateStrategy<string, string[]> =
+        (current, payload) => [...(current ?? []), payload]
 
       expect(setStrategy).toBe('set')
       expect(refetchStrategy).toBe('refetch')
@@ -135,9 +159,10 @@ describe('Package exports', () => {
     })
 
     it('should export UseSSEStreamOptions type', async () => {
-      const options: import('../index.ts').UseSSEStreamOptions<{ id: number }> = {
-        transform: (data) => data as { id: number },
-      }
+      const options: import('../index.ts').UseSSEStreamOptions<{ id: number }> =
+        {
+          transform: (data) => data as { id: number },
+        }
 
       expect(options.transform).toBeDefined()
     })
@@ -149,6 +174,61 @@ describe('Package exports', () => {
       }
 
       expect(result.data?.id).toBe(1)
+    })
+
+    it('should export SSETransport type', async () => {
+      // SSETransport is the escape-hatch interface for custom transports
+      const transport: import('../index.ts').SSETransport = {
+        onmessage: null,
+        onerror: null,
+        onopen: null,
+        close: () => {},
+        readyState: 0,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }
+
+      expect(transport.readyState).toBe(0)
+      expect(typeof transport.close).toBe('function')
+      expect(typeof transport.addEventListener).toBe('function')
+      expect(typeof transport.removeEventListener).toBe('function')
+    })
+
+    it('should export SSERequestOptions type', async () => {
+      // SSERequestOptions groups method/body/headers for custom HTTP requests
+      const reqOptions: import('../index.ts').SSERequestOptions = {
+        method: 'POST',
+        body: JSON.stringify({ query: 'test' }),
+        headers: { 'Content-Type': 'application/json' },
+      }
+
+      expect(reqOptions.method).toBe('POST')
+      expect(reqOptions.headers?.['Content-Type']).toBe('application/json')
+    })
+
+    it('should export SSEConfig with transport abstraction fields', async () => {
+      // SSEConfig should have method, body, headers, and transport fields
+      const config: import('../index.ts').SSEConfig = {
+        url: '/api/events',
+        events: {},
+        method: 'POST',
+        body: JSON.stringify({ subscribe: true }),
+        headers: { Authorization: 'Bearer token' },
+        transport: (_url: string) => ({
+          onmessage: null,
+          onerror: null,
+          onopen: null,
+          close: () => {},
+          readyState: 0,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }),
+      }
+
+      expect(config.method).toBe('POST')
+      expect(config.body).toBeDefined()
+      expect(config.headers?.Authorization).toBe('Bearer token')
+      expect(typeof config.transport).toBe('function')
     })
   })
 
@@ -171,7 +251,8 @@ describe('Package exports', () => {
       const { mockSSE } = await import('../testing/index.ts')
 
       // Create a mock and verify the controls interface
-      const controls: import('../testing/index.ts').MockSSEControls = mockSSE('/test-url')
+      const controls: import('../testing/index.ts').MockSSEControls =
+        mockSSE('/test-url')
 
       expect(controls.sendEvent).toBeDefined()
       expect(controls.close).toBeDefined()
@@ -204,6 +285,7 @@ describe('Package exports', () => {
         'useSSEStatus',
         'useSSEEvent',
         'useSSEStream',
+        'createSSEParser',
       ]
 
       for (const name of expectedRuntimeExports) {

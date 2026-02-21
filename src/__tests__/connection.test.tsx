@@ -177,8 +177,8 @@ describe('SSEProvider EventSource Connection', () => {
 
       // During initial render (before open), connecting should be true
       expect(capturedStatus).not.toBeNull()
-      expect(capturedStatus!.connecting).toBe(true)
-      expect(capturedStatus!.connected).toBe(false)
+      expect(capturedStatus?.connecting).toBe(true)
+      expect(capturedStatus?.connected).toBe(false)
     })
 
     it('should invoke onopen handler when connection opens', async () => {
@@ -387,11 +387,11 @@ describe('SSEProvider EventSource Connection', () => {
         events: {},
       }
 
-      let capturedStatus: SSEStatus | null = null
+      let _capturedStatus: SSEStatus | null = null
 
       function StatusCapture() {
         const ctx = useSSEContext()
-        capturedStatus = ctx.status
+        _capturedStatus = ctx.status
         return createElement('div', null, 'status')
       }
 
@@ -755,7 +755,7 @@ describe('SSEProvider EventSource Connection', () => {
       source.simulateOpen()
 
       // Unsubscribe one handler
-      unsubscribeFn!()
+      unsubscribeFn?.()
 
       // Send event
       source.simulateNamedEvent('test:event', JSON.stringify({ data: 'test' }))

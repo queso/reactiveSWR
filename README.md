@@ -578,6 +578,36 @@ mockSSE.restore()                                    // Restore real EventSource
 
 This library is inspired by [Meteor's](https://www.meteor.com/) Minimongo and DDP protocol, which pioneered the pattern of real-time database synchronization to the client. reactiveSWR brings that developer experience to the modern React ecosystem using SSE and SWR.
 
+## Contributing
+
+Contributions are welcome! This project uses [Bun](https://bun.sh/) as its runtime and package manager.
+
+### Setup
+
+```bash
+git clone https://github.com/queso/reactiveSWR.git
+cd reactiveSWR
+bun install
+```
+
+### Development commands
+
+```bash
+bun run dev        # Watch mode
+bun test           # Run unit tests
+bun run lint       # Check for lint issues
+bun run lint:fix   # Auto-fix lint issues
+bun run typecheck  # Type-check without emitting
+bun run build      # Build dist/ artifacts
+```
+
+### Workflow
+
+1. Fork the repo and create a feature branch
+2. Make your changes
+3. Ensure `bun run lint`, `bun run typecheck`, and `bun test` all pass
+4. Open a pull request against `main`
+
 ## License
 
 MIT

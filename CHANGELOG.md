@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-02-22
+
 ### Added
 - `defineSchema()` function for shared, type-safe event definitions consumed by both server and client (#WI-037)
 - `createChannel(schema)` server-side SSE channel with dual Web/Node.js signatures, heartbeats, broadcast, and disconnect cleanup (#WI-039)

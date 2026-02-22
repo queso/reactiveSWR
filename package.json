@@ -1,6 +1,6 @@
 {
   "name": "reactive-swr",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Meteor-style reactivity for React using SWR and Server-Sent Events",
   "module": "src/index.ts",
   "type": "module",
@@ -19,6 +19,21 @@
     }
   },
   "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "author": "Josh Owens",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/queso/reactiveSWR.git"
+  },
+  "homepage": "https://github.com/queso/reactiveSWR#readme",
+  "bugs": {
+    "url": "https://github.com/queso/reactiveSWR/issues"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "build": "bun build src/index.ts src/testing/index.ts src/server/index.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json",

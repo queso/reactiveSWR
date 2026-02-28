@@ -16,6 +16,22 @@
     "./server": {
       "import": "./dist/server/index.js",
       "types": "./dist/server/index.d.ts"
+    },
+    "./server/adapters/prisma": {
+      "import": "./dist/server/adapters/prisma.js",
+      "types": "./dist/server/adapters/prisma.d.ts"
+    },
+    "./server/adapters/mongodb": {
+      "import": "./dist/server/adapters/mongodb.js",
+      "types": "./dist/server/adapters/mongodb.d.ts"
+    },
+    "./server/adapters/pg": {
+      "import": "./dist/server/adapters/pg.js",
+      "types": "./dist/server/adapters/pg.d.ts"
+    },
+    "./server/adapters/emitter": {
+      "import": "./dist/server/adapters/emitter.js",
+      "types": "./dist/server/adapters/emitter.d.ts"
     }
   },
   "sideEffects": false,
@@ -36,7 +52,7 @@
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/testing/index.ts src/server/index.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json",
+    "build": "bun build src/index.ts src/testing/index.ts src/server/index.ts src/server/adapters/prisma.ts src/server/adapters/mongodb.ts src/server/adapters/pg.ts src/server/adapters/emitter.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json",
     "prepare": "bun run build",
     "test": "bun test",
     "test:e2e": "bunx playwright test",

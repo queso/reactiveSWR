@@ -816,7 +816,7 @@ describe('SSEProvider EventSource Connection', () => {
      * (onConnect / onDisconnect) from superseded connections are silently dropped.
      */
 
-    it('should create only one EventSource when URL changes during createConnection', () => {
+    it('should create exactly one EventSource on initial render', () => {
       // Set up a transport factory that records all instantiated connections
       const createdUrls: string[] = []
 

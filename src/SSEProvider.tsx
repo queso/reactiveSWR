@@ -540,6 +540,11 @@ export function SSEProvider({
 
     // Handle generic messages (unnamed events)
     connection.onmessage = (event: MessageEvent) => {
+      // Ignore messages from superseded connections (rapid URL changes)
+      if (!isActiveConnection()) {
+        return
+      }
+
       try {
         const parseEvent = configRef.current.parseEvent ?? defaultParseEvent
         const parsed = parseEvent(event)
@@ -584,6 +589,11 @@ export function SSEProvider({
     const eventTypes = Object.keys(configRef.current.events)
     for (const eventType of eventTypes) {
       const handler = (event: MessageEvent) => {
+        // Ignore messages from superseded connections (rapid URL changes)
+        if (!isActiveConnection()) {
+          return
+        }
+
         try {
           let parsed: ParsedEvent
           if (configRef.current.parseEvent) {

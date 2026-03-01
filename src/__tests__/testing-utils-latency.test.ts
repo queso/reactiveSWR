@@ -132,6 +132,9 @@ describe('mockSSE setLatency()', () => {
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
+      expect(reader).toBeDefined()
+      if (!reader) throw new Error('Expected reader to be defined')
+
       mock.setLatency(50)
 
       const start = Date.now()
@@ -155,6 +158,9 @@ describe('mockSSE setLatency()', () => {
       const response = await fetch('/api/stream')
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
+
+      expect(reader).toBeDefined()
+      if (!reader) throw new Error('Expected reader to be defined')
 
       mock.setLatency(50)
 

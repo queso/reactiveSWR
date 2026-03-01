@@ -1021,7 +1021,7 @@ mockSSE.restore: () => void
 **Check the SSE endpoint response.**
 The server must respond with HTTP 200 and `Content-Type: text/event-stream`. Any other status code or content type causes the connection to fail silently or loop.
 
-```
+```text
 # Verify with curl
 curl -v -N -H "Accept: text/event-stream" http://localhost:3000/api/events
 # Look for: < HTTP/1.1 200 OK
@@ -1051,7 +1051,7 @@ const config: SSEConfig = {
 **Confirm events are terminated with `\n\n`.**
 SSE requires each event block to end with a double newline. A single `\n` is a field separator, not an event boundary. The server must write:
 
-```
+```text
 data: {"type":"order:updated","payload":{...}}\n\n
 ```
 

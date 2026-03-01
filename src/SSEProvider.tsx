@@ -453,7 +453,7 @@ export function SSEProvider({
         error: new SSEProviderError(
           error instanceof Error ? error.message : String(error),
           'TRANSPORT',
-          error instanceof Error ? { cause: error } : undefined,
+          { cause: error },
         ),
       })
       return
@@ -558,7 +558,7 @@ export function SSEProvider({
           new SSEProviderError(
             error instanceof Error ? error.message : String(error),
             'PARSE',
-            error instanceof Error ? { cause: error } : undefined,
+            { cause: error },
           ),
         )
       }
@@ -613,7 +613,7 @@ export function SSEProvider({
             new SSEProviderError(
               error instanceof Error ? error.message : String(error),
               'PARSE',
-              error instanceof Error ? { cause: error } : undefined,
+              { cause: error },
             ),
           )
         }

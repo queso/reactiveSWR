@@ -12,9 +12,11 @@ interface SSEEventData {
 }
 
 interface MockSSEControls {
-  sendEvent: (event: SSEEventData) => void
-  sendRaw: (text: string) => void
-  sendSSE: (data: unknown) => void
+  sendEvent: (event: SSEEventData) => Promise<void>
+  sendRaw: (text: string) => Promise<void>
+  sendSSE: (data: unknown) => Promise<void>
+  setLatency: (ms: number) => void
+  resetLatency: () => void
   close: () => void
   getConnection: () => MockEventSource | undefined
 }
@@ -355,22 +357,70 @@ function mockSSE(url: string): MockSSEControls {
   mockRegistry.install()
   mockRegistry.registerUrl(url)
 
+  let latencyMs = 0
+
+  function dispatchEvent(event: SSEEventData): void {
+    if (mockRegistry.isRestored()) return
+    const instance = mockRegistry.getInstance(url)
+    instance?._dispatchMessage(event)
+    mockRegistry.sendEventToFetchStreams(url, event)
+  }
+
+  function dispatchRaw(text: string): void {
+    if (mockRegistry.isRestored()) return
+    mockRegistry.sendRawToFetchStreams(url, text)
+  }
+
   return {
-    sendEvent(event: SSEEventData): void {
-      if (mockRegistry.isRestored()) return
-      const instance = mockRegistry.getInstance(url)
-      instance?._dispatchMessage(event)
-      mockRegistry.sendEventToFetchStreams(url, event)
+    sendEvent(event: SSEEventData): Promise<void> {
+      if (mockRegistry.isRestored()) return Promise.resolve()
+      if (latencyMs <= 0) {
+        dispatchEvent(event)
+        return Promise.resolve()
+      }
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          dispatchEvent(event)
+          resolve()
+        }, latencyMs),
+      )
     },
 
-    sendRaw(text: string): void {
-      if (mockRegistry.isRestored()) return
-      mockRegistry.sendRawToFetchStreams(url, text)
+    sendRaw(text: string): Promise<void> {
+      if (mockRegistry.isRestored()) return Promise.resolve()
+      if (latencyMs <= 0) {
+        dispatchRaw(text)
+        return Promise.resolve()
+      }
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          dispatchRaw(text)
+          resolve()
+        }, latencyMs),
+      )
     },
 
-    sendSSE(data: unknown): void {
-      if (mockRegistry.isRestored()) return
-      mockRegistry.sendRawToFetchStreams(url, formatSSEData(data))
+    sendSSE(data: unknown): Promise<void> {
+      if (mockRegistry.isRestored()) return Promise.resolve()
+      const text = formatSSEData(data)
+      if (latencyMs <= 0) {
+        dispatchRaw(text)
+        return Promise.resolve()
+      }
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          dispatchRaw(text)
+          resolve()
+        }, latencyMs),
+      )
+    },
+
+    setLatency(ms: number): void {
+      latencyMs = ms
+    },
+
+    resetLatency(): void {
+      latencyMs = 0
     },
 
     close(): void {

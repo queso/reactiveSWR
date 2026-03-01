@@ -2,6 +2,8 @@
 import { formatSSEEvent } from '../sseParser'
 import type { SSEAdapter } from './adapters/types.ts'
 
+// SSE formatting helpers — server-side only
+export { formatSSEData, formatSSEEvent } from '../sseParser'
 export { createEmitterAdapter } from './adapters/emitter.ts'
 export { createMongoAdapter } from './adapters/mongodb.ts'
 export { createPgAdapter } from './adapters/pg.ts'

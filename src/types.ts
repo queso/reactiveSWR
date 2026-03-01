@@ -174,16 +174,83 @@ export interface SchemaEventDefinition<TPayload = any, TData = any> {
 }
 
 /**
+ * Definition for a single resource operation (created, updated, or deleted).
+ * All fields are optional — omitting key yields a default key based on the resource name.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: resource operation allows any payload/data types
+export interface ResourceOperationDefinition<TPayload = any, TData = any> {
+  key?: string | string[] | ((payload: TPayload) => string | string[])
+  update?: UpdateStrategy<TPayload, TData>
+  filter?: (payload: TPayload) => boolean
+  transform?: (payload: TPayload) => TPayload
+}
+
+/**
+ * Definition for a resource in defineSchema().
+ * Each resource can optionally specify custom definitions for created, updated, and deleted.
+ */
+export interface ResourceDefinition {
+  created?: ResourceOperationDefinition
+  updated?: ResourceOperationDefinition
+  deleted?: ResourceOperationDefinition
+}
+
+/**
  * The input shape accepted by defineSchema().
  * Keys are event type names (string literals), values are event definitions.
+ * The optional `resources` key expands each entry into .created/.updated/.deleted events.
  */
-export type SchemaDefinition = Record<string, SchemaEventDefinition>
+export type SchemaDefinition = {
+  resources?: Record<string, ResourceDefinition>
+} & Record<
+  string,
+  SchemaEventDefinition | Record<string, ResourceDefinition> | undefined
+>
+
+/**
+ * Expands a resource name into the three event key literals it generates at runtime.
+ * e.g. 'orders' -> 'orders.created' | 'orders.updated' | 'orders.deleted'
+ */
+type ResourceEventKeys<R extends string> =
+  | `${R}.created`
+  | `${R}.updated`
+  | `${R}.deleted`
+
+/**
+ * Builds the mapped type for all resource-expanded events.
+ * For each resource name R, produces entries for R.created, R.updated, R.deleted.
+ */
+type ResourceSchemaEntries<
+  TResources extends Record<string, ResourceDefinition>,
+> = {
+  [R in string & keyof TResources as ResourceEventKeys<R>]: Required<
+    Pick<SchemaEventDefinition, 'key'>
+  > &
+    Omit<SchemaEventDefinition, 'key'> & {
+      // biome-ignore lint/suspicious/noExplicitAny: resource events have erased payload/data types
+      update: UpdateStrategy<any, any> | 'set'
+    }
+}
 
 /**
  * The frozen schema object returned by defineSchema().
  * Preserves string literal event names from the input for TypeScript autocomplete.
+ * When the input has a `resources` field, the output includes the expanded
+ * `.created`, `.updated`, `.deleted` event keys with proper typing.
  */
-export type SchemaResult<T extends SchemaDefinition> = Readonly<{
-  [K in keyof T]: Required<Pick<T[K], 'key'>> &
-    Omit<T[K], 'key'> & { update: NonNullable<T[K]['update']> | 'set' }
-}>
+// biome-ignore lint/suspicious/noExplicitAny: SchemaResult generic requires any for broad compatibility
+export type SchemaResult<T extends Record<string, any>> = Readonly<
+  {
+    [K in keyof T as T[K] extends SchemaEventDefinition
+      ? K
+      : never]: T[K] extends SchemaEventDefinition
+      ? Required<Pick<T[K], 'key'>> &
+          Omit<T[K], 'key'> & { update: NonNullable<T[K]['update']> | 'set' }
+      : never
+  } & (T extends { resources: infer R }
+    ? R extends Record<string, ResourceDefinition>
+      ? ResourceSchemaEntries<R>
+      : // biome-ignore lint/suspicious/noExplicitAny: fallback for unknown resource shape
+        Record<string, any>
+    : Record<never, never>)
+>

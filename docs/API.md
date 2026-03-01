@@ -14,6 +14,12 @@ Complete API documentation for reactiveSWR.
   - [createSSEParser](#createssparser)
 - [Server Entry Point (`reactive-swr/server`)](#server-entry-point-reactive-swrserver)
   - [createChannel](#createchannel)
+  - [Adapters](#adapters)
+    - [SSEAdapter Interface](#sseadapter-interface)
+    - [createPrismaAdapter](#createprismaadapter)
+    - [createMongoAdapter](#createmongoadapter)
+    - [createPgAdapter](#createpgadapter)
+    - [createEmitterAdapter](#createemitteradapter)
 - [Testing Entry Point (`reactive-swr/testing`)](#testing-entry-point-reactive-swrtesting)
   - [mockSSE](#mocksse)
 - [Types](#types)
@@ -27,6 +33,8 @@ Complete API documentation for reactiveSWR.
   - [SSERequestOptions](#sserequestoptions)
   - [SSEProviderProps](#sseproviderprops)
   - [SchemaDefinition and SchemaResult](#schemadefinition-and-schemaresult)
+  - [ResourceDefinition and ResourceOperationDefinition](#resourcedefinition-and-resourceoperationdefinition)
+  - [AdapterMapping](#adaptermapping)
   - [SSEEvent and SSEParser](#sseevent-and-sseparser)
   - [UseSSEStreamOptions and UseSSEStreamResult](#usessestreamoptions-and-usessestreamresult)
 
@@ -253,6 +261,24 @@ const schema = defineSchema({
 
 The returned schema object is frozen with `Object.freeze()`. Each entry defaults `update` to `'set'` when not specified.
 
+**With resources:**
+
+```typescript
+const schema = defineSchema({
+  resources: {
+    orders: {
+      created: { key: '/api/orders', update: 'refetch' },
+      updated: { key: (p: { id: string }) => `/api/orders/${p.id}`, update: 'set' },
+      deleted: { key: '/api/orders', update: 'refetch' },
+    },
+  },
+  // Explicit events alongside resources
+  'notification.sent': { key: '/api/notifications' },
+})
+```
+
+Each resource key (e.g., `orders`) expands into `orders.created`, `orders.updated`, and `orders.deleted` events. Per-operation definitions are optional -- omitted operations get a default event with the resource name as the key and `'set'` as the update strategy. Explicit event definitions always take precedence over generated resource events.
+
 **Using with SSEProvider:**
 
 ```tsx
@@ -368,7 +394,8 @@ function createChannel(
 | `respond(request: Request): { response, emitter }` | Web standard. Returns a `Response` and a scoped `ScopedEmitter` for request-scoped streaming. |
 | `respond(req, res): ScopedEmitter` | Node.js. Writes SSE headers and returns a scoped `ScopedEmitter`. |
 | `emit(type, payload): void` | Broadcast an event to all clients connected via `connect()`. |
-| `close(): void` | Close all connections and stop the heartbeat timer. |
+| `watch(adapter): cleanup` | Connect an `SSEAdapter` to the channel. Returns a cleanup function (or `Promise<cleanup>` if the adapter's `start()` is async). |
+| `close(): void` | Close all connections, stop all watched adapters, and stop the heartbeat timer. |
 | `isClosed(): boolean` | Returns `true` if the channel has been closed. |
 
 **ScopedEmitter:**
@@ -439,7 +466,264 @@ channel.close()
 - The heartbeat timer starts when the first client connects and stops when the last client disconnects
 - Dead clients (closed streams, ended responses) are automatically pruned during broadcast and heartbeat cycles
 - `connect()` sends an initial `: connected\n\n` comment when a client connects
-- Throws `Error('Channel is closed')` if `connect()`, `respond()`, or `emit()` are called after `close()`
+- Throws `Error('Cannot connect: channel is closed')` or `Error('Cannot respond: channel is closed')` if called after `close()`
+
+---
+
+### Adapters
+
+Database and event source adapters that bridge change notifications to `channel.emit()`. Each adapter implements the `SSEAdapter` interface and can be connected to a channel via `channel.watch()`.
+
+All adapters are tree-shakeable and can be imported individually or from the barrel export:
+
+```typescript
+// Individual imports (recommended for tree-shaking)
+import { createPrismaAdapter } from 'reactive-swr/server/adapters/prisma'
+import { createMongoAdapter } from 'reactive-swr/server/adapters/mongodb'
+import { createPgAdapter } from 'reactive-swr/server/adapters/pg'
+import { createEmitterAdapter } from 'reactive-swr/server/adapters/emitter'
+
+// Barrel import
+import {
+  createPrismaAdapter,
+  createMongoAdapter,
+  createPgAdapter,
+  createEmitterAdapter,
+  type SSEAdapter,
+  type AdapterMapping,
+} from 'reactive-swr/server'
+```
+
+---
+
+#### SSEAdapter Interface
+
+The standard contract all adapters implement. Exported from `reactive-swr/server` for third-party adapter authors.
+
+```typescript
+interface SSEAdapter {
+  start(emit: (eventType: string, payload: unknown) => void): void | Promise<void>
+  stop(): void | Promise<void>
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `start(emit)` | Begin watching for changes. Call `emit(eventType, payload)` when a change occurs. May be sync or async. |
+| `stop()` | Stop watching and clean up resources. May be sync or async. |
+
+**Notes:**
+
+- Adapters are stateless with respect to the channel -- the channel provides the `emit` callback
+- Each adapter is responsible for its own reconnection logic (e.g., MongoDB resume tokens)
+- `emit()` errors thrown inside the adapter are caught and do not propagate
+
+---
+
+#### createPrismaAdapter
+
+Create an adapter that intercepts Prisma `create`, `update`, and `delete` operations via `$use()` middleware and emits SSE events after each operation completes.
+
+```typescript
+function createPrismaAdapter(
+  prisma: PrismaClient,
+  mapping: PrismaAdapterMapping
+): SSEAdapter
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prisma` | `PrismaClient` | A Prisma client instance with `$use()` support |
+| `mapping` | `PrismaAdapterMapping` | Maps Prisma model names to event types per operation |
+
+**PrismaAdapterMapping:**
+
+```typescript
+type PrismaAdapterMapping = {
+  [modelName: string]: {
+    created?: string
+    updated?: string
+    deleted?: string
+  }
+}
+```
+
+**Usage:**
+
+```typescript
+import { createPrismaAdapter } from 'reactive-swr/server/adapters/prisma'
+
+const adapter = createPrismaAdapter(prisma, {
+  Order: {
+    created: 'orders.created',
+    updated: 'orders.updated',
+    deleted: 'orders.deleted',
+  },
+})
+
+const cleanup = channel.watch(adapter)
+```
+
+**Supported Prisma actions:** `create`, `createMany`, `update`, `updateMany`, `delete`, `deleteMany`.
+
+**Notes:**
+
+- Does not import `@prisma/client` -- accepts the client instance as a parameter
+- Events are emitted after the operation completes (post-middleware), not before
+- The adapter's middleware should be registered last to run after other middleware
+- `start()` is idempotent -- calling it multiple times has no effect
+- `stop()` disables emission but does not remove the registered middleware (Prisma `$use()` does not support removal)
+
+---
+
+#### createMongoAdapter
+
+Create an adapter that watches a MongoDB collection via Change Streams and emits SSE events for document changes.
+
+```typescript
+function createMongoAdapter(
+  collection: MongoCollection,
+  mapping: MongoAdapterMapping
+): SSEAdapter
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `collection` | `MongoCollection` | A MongoDB collection with `watch()` support |
+| `mapping` | `MongoAdapterMapping` | Maps Change Stream operation types to event types |
+
+**MongoAdapterMapping:**
+
+```typescript
+type MongoAdapterMapping = {
+  [operationType: string]: string  // e.g., 'insert' -> 'orders.created'
+}
+```
+
+**Usage:**
+
+```typescript
+import { createMongoAdapter } from 'reactive-swr/server/adapters/mongodb'
+
+const adapter = createMongoAdapter(db.collection('orders'), {
+  insert: 'orders.created',
+  update: 'orders.updated',
+  replace: 'orders.updated',
+  delete: 'orders.deleted',
+})
+
+const cleanup = await channel.watch(adapter)
+```
+
+**Notes:**
+
+- Does not import `mongodb` -- accepts the collection instance as a parameter
+- Persists resume tokens so reconnections pick up where they left off
+- Handles `invalidate` events by reopening the stream (up to 5 reconnection attempts)
+- Payload is `fullDocument` for insert/update/replace, `documentKey` for delete
+- `start()` is async -- it opens the Change Stream and begins iteration
+
+---
+
+#### createPgAdapter
+
+Create an adapter that listens on PostgreSQL LISTEN/NOTIFY channels and emits SSE events when NOTIFY messages arrive.
+
+```typescript
+function createPgAdapter(
+  client: PgClient,
+  mapping: PgAdapterMapping
+): SSEAdapter
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `client` | `PgClient` | A `pg` client instance with `query()` and `on()` methods |
+| `mapping` | `PgAdapterMapping` | Maps PostgreSQL channel names to event types |
+
+**PgAdapterMapping:**
+
+```typescript
+type PgAdapterMapping = {
+  [channelName: string]: string  // e.g., 'order_changes' -> 'orders.updated'
+}
+```
+
+**Usage:**
+
+```typescript
+import { createPgAdapter } from 'reactive-swr/server/adapters/pg'
+
+const adapter = createPgAdapter(pgClient, {
+  order_changes: 'orders.updated',
+  user_changes: 'users.updated',
+})
+
+const cleanup = await channel.watch(adapter)
+```
+
+**Notes:**
+
+- Does not import `pg` -- accepts the client instance as a parameter
+- `start()` is async -- it issues `LISTEN` queries for each mapped channel
+- `stop()` is async -- it issues `UNLISTEN` queries and removes the notification listener
+- NOTIFY payloads are parsed as JSON; malformed payloads emit `undefined`
+- SQL identifiers are properly quoted to prevent injection
+- Supports both `client.off()` and `client.removeListener()` for cleanup
+- Be aware of the PostgreSQL NOTIFY payload limit of 8000 bytes
+
+---
+
+#### createEmitterAdapter
+
+Create an adapter that bridges any object with `on(event, listener)` and `off(event, listener)` methods to SSE events.
+
+```typescript
+function createEmitterAdapter(
+  emitter: OnOffEmitter,
+  mapping: EmitterAdapterMapping
+): SSEAdapter
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `emitter` | `OnOffEmitter` | Any object with `on(event, listener)` and `off(event, listener)` methods |
+| `mapping` | `EmitterAdapterMapping` | Maps emitter event names to schema event types |
+
+**EmitterAdapterMapping:**
+
+```typescript
+type EmitterAdapterMapping = {
+  [emitterEvent: string]: string  // e.g., 'order:changed' -> 'orders.updated'
+}
+```
+
+**Usage:**
+
+```typescript
+import { createEmitterAdapter } from 'reactive-swr/server/adapters/emitter'
+
+const adapter = createEmitterAdapter(myEventBus, {
+  'order:changed': 'orders.updated',
+  'user:changed': 'users.updated',
+})
+
+const cleanup = channel.watch(adapter)
+```
+
+**Notes:**
+
+- Does not require Node.js `EventEmitter` -- works with any `on`/`off`-compatible interface
+- The first argument of the emitter event is passed as the payload to `emit()`
+- `stop()` calls `off()` for each registered handler
 
 ---
 
@@ -560,6 +844,8 @@ import type {
   EventMapping,
   ParsedEvent,
   ReconnectConfig,
+  ResourceDefinition,
+  ResourceOperationDefinition,
   SchemaDefinition,
   SchemaEventDefinition,
   SchemaResult,
@@ -572,6 +858,12 @@ import type {
   UseSSEStreamOptions,
   UseSSEStreamResult,
 } from 'reactive-swr'
+```
+
+Server types:
+
+```typescript
+import type { SSEAdapter, AdapterMapping } from 'reactive-swr/server'
 ```
 
 Testing types:
@@ -798,7 +1090,10 @@ Types for the `defineSchema()` function.
 
 ```typescript
 // Input shape accepted by defineSchema()
-type SchemaDefinition = Record<string, SchemaEventDefinition>
+// Accepts explicit event definitions and an optional `resources` key
+type SchemaDefinition = {
+  resources?: Record<string, ResourceDefinition>
+} & Record<string, SchemaEventDefinition | Record<string, ResourceDefinition> | undefined>
 
 // A single event definition entry within a schema
 interface SchemaEventDefinition<TPayload = any, TData = any> {
@@ -809,11 +1104,56 @@ interface SchemaEventDefinition<TPayload = any, TData = any> {
 }
 
 // Frozen schema object returned by defineSchema()
-type SchemaResult<T extends SchemaDefinition> = Readonly<{
-  [K in keyof T]: Required<Pick<T[K], 'key'>> &
-    Omit<T[K], 'key'> & { update: NonNullable<T[K]['update']> | 'set' }
-}>
+// Includes both explicit event definitions and resource-expanded events
+type SchemaResult<T extends Record<string, any>> = Readonly<
+  {
+    [K in keyof T as T[K] extends SchemaEventDefinition ? K : never]:
+      T[K] extends SchemaEventDefinition
+        ? Required<Pick<T[K], 'key'>> &
+            Omit<T[K], 'key'> & { update: NonNullable<T[K]['update']> | 'set' }
+        : never
+  } & (T extends { resources: infer R extends Record<string, ResourceDefinition> }
+    ? ResourceSchemaEntries<R>  // Adds .created/.updated/.deleted keys
+    : Record<never, never>)
+>
 ```
+
+---
+
+### ResourceDefinition and ResourceOperationDefinition
+
+Types for the `resources` field in `defineSchema()`.
+
+```typescript
+// Definition for a resource -- each operation is optional
+interface ResourceDefinition {
+  created?: ResourceOperationDefinition
+  updated?: ResourceOperationDefinition
+  deleted?: ResourceOperationDefinition
+}
+
+// Definition for a single resource operation
+interface ResourceOperationDefinition<TPayload = any, TData = any> {
+  key?: string | string[] | ((payload: TPayload) => string | string[])
+  update?: UpdateStrategy<TPayload, TData>
+  filter?: (payload: TPayload) => boolean
+  transform?: (payload: TPayload) => TPayload
+}
+```
+
+---
+
+### AdapterMapping
+
+Type-safe mapping from source event names to schema event type keys. Constrains mapped values to keys that exist in the schema (excluding internal keys like `resources`).
+
+```typescript
+type AdapterMapping<S extends Record<string, any>> = {
+  [sourceEvent: string]: EventKeysOf<S>
+}
+```
+
+Exported from `reactive-swr/server` for use by third-party adapter authors who want type-safe mappings against a schema.
 
 ---
 

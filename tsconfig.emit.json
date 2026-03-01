@@ -10,6 +10,7 @@
     "src/index.ts",
     "src/testing/index.ts",
     "src/server/index.ts",
+    "src/server/adapters",
     "src/hooks",
     "src/SSEProvider.tsx",
     "src/fetchTransport.ts",

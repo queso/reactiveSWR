@@ -1,5 +1,12 @@
 // Server-side utilities for reactiveSWR
 import { formatSSEEvent } from '../sseParser'
+import type { SSEAdapter } from './adapters/types.ts'
+
+export { createEmitterAdapter } from './adapters/emitter.ts'
+export { createMongoAdapter } from './adapters/mongodb.ts'
+export { createPgAdapter } from './adapters/pg.ts'
+export { createPrismaAdapter } from './adapters/prisma.ts'
+export type { AdapterMapping, SSEAdapter } from './adapters/types.ts'
 
 // Capture built-in timer functions at module load time so that test patches to
 // globalThis.setInterval cannot cause infinite recursion inside createChannel.
@@ -34,7 +41,16 @@ interface Channel {
   /** Node.js: writes SSE headers to `res` and returns a `ScopedEmitter` */
   respond(req: NodeRequest, res: NodeResponse): ScopedEmitter
   emit(type: string, payload: unknown): void
-  close(): void
+  /**
+   * Connect an SSEAdapter to this channel. The adapter's emitted events are
+   * broadcast to all connected clients via channel.emit().
+   * Returns a cleanup function (always async) when adapter.start() is sync,
+   * or a Promise that resolves to a cleanup function when adapter.start() is async.
+   */
+  watch(
+    adapter: SSEAdapter,
+  ): (() => Promise<void>) | Promise<() => Promise<void>>
+  close(): void | Promise<void>
   isClosed(): boolean
 }
 
@@ -163,6 +179,8 @@ export function createChannel(
 ): Channel {
   const heartbeatMs = options.heartbeatInterval ?? 30000
   const broadcastPool = new Set<Client>()
+  const watchedAdapters = new Set<SSEAdapter>()
+  const stoppedAdapters = new Set<SSEAdapter>()
   let closed = false
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
 
@@ -185,7 +203,7 @@ export function createChannel(
   }
 
   function connectWeb(request: Request): Response {
-    if (closed) throw new Error('Channel is closed')
+    if (closed) throw new Error('Cannot connect: channel is closed')
 
     // Suppress unused param lint — request is part of the public API signature
     void request
@@ -225,8 +243,9 @@ export function createChannel(
   }
 
   function connectNode(req: NodeRequest, res: NodeResponse): void {
-    if (closed) throw new Error('Channel is closed')
-    if (res.writableEnded) throw new Error('ServerResponse is already ended')
+    if (closed) throw new Error('Cannot connect: channel is closed')
+    if (res.writableEnded)
+      throw new Error('Cannot connect: ServerResponse is already ended')
 
     res.writeHead(200, SSE_HEADERS)
 
@@ -247,7 +266,7 @@ export function createChannel(
   }
 
   function respondWeb(request: Request): WebRespondResult {
-    if (closed) throw new Error('Channel is closed')
+    if (closed) throw new Error('Cannot respond: channel is closed')
 
     // Suppress unused param lint — request is part of the public API signature
     void request
@@ -291,8 +310,9 @@ export function createChannel(
   }
 
   function respondNode(req: NodeRequest, res: NodeResponse): ScopedEmitter {
-    if (closed) throw new Error('Channel is closed')
-    if (res.writableEnded) throw new Error('ServerResponse is already ended')
+    if (closed) throw new Error('Cannot respond: channel is closed')
+    if (res.writableEnded)
+      throw new Error('Cannot respond: ServerResponse is already ended')
 
     // Suppress unused param lint — req is part of the public API signature
     void req
@@ -322,6 +342,23 @@ export function createChannel(
     return emitter
   }
 
+  function broadcastEmit(type: string, payload: unknown): void {
+    if (broadcastPool.size === 0) return
+
+    const chunk = formatSSEEvent(type, payload)
+    const dead: Client[] = []
+
+    for (const client of broadcastPool) {
+      const ok = writeToClient(client, chunk)
+      if (!ok) dead.push(client)
+    }
+
+    for (const client of dead) {
+      broadcastPool.delete(client)
+    }
+    if (dead.length > 0 && broadcastPool.size === 0) stopHeartbeat()
+  }
+
   return {
     connect(
       reqOrRequest: Request | NodeRequest,
@@ -345,31 +382,68 @@ export function createChannel(
     },
 
     emit(type: string, payload: unknown): void {
-      if (broadcastPool.size === 0) return
-
-      const chunk = formatSSEEvent(type, payload)
-      const dead: Client[] = []
-
-      for (const client of broadcastPool) {
-        const ok = writeToClient(client, chunk)
-        if (!ok) dead.push(client)
-      }
-
-      for (const client of dead) {
-        broadcastPool.delete(client)
-      }
-      if (dead.length > 0 && broadcastPool.size === 0) stopHeartbeat()
+      broadcastEmit(type, payload)
     },
 
-    close(): void {
+    watch(
+      adapter: SSEAdapter,
+    ): (() => Promise<void>) | Promise<() => Promise<void>> {
+      if (closed) throw new Error('Channel is closed')
+
+      // Clear any previous stopped state so re-watching the same adapter works
+      stoppedAdapters.delete(adapter)
+
+      // Bug 3 fix: idempotent cleanup — only stop once regardless of who calls it
+      const cleanup = async (): Promise<void> => {
+        if (stoppedAdapters.has(adapter)) return
+        stoppedAdapters.add(adapter)
+        watchedAdapters.delete(adapter)
+        await adapter.stop()
+      }
+
+      let startResult: void | Promise<void>
+      startResult = adapter.start(broadcastEmit)
+
+      if (startResult instanceof Promise) {
+        // For async start: add to tracked set optimistically, remove if start rejects
+        watchedAdapters.add(adapter)
+        return startResult.then(
+          () => cleanup,
+          (err) => {
+            // Bug 1 fix (async): start rejected — remove from tracked set
+            watchedAdapters.delete(adapter)
+            throw err
+          },
+        )
+      }
+
+      // Bug 1 fix: only add after successful synchronous start
+      watchedAdapters.add(adapter)
+      return cleanup
+    },
+
+    close(): void | Promise<void> {
       closed = true
       stopHeartbeat()
 
       for (const client of broadcastPool) {
         closeClient(client)
       }
-
       broadcastPool.clear()
+
+      const adapters = [...watchedAdapters]
+      watchedAdapters.clear()
+
+      if (adapters.length === 0) return
+
+      // Bug 2 fix: async wrapper captures synchronous throws inside allSettled
+      return Promise.allSettled(
+        adapters.map(async (a) => {
+          if (stoppedAdapters.has(a)) return
+          stoppedAdapters.add(a)
+          await a.stop()
+        }),
+      ).then(() => {})
     },
 
     isClosed(): boolean {

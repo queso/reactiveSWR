@@ -37,11 +37,17 @@ Database systems already provide change notification mechanisms — MongoDB Chan
 
 ## Scope
 
+### Implementation Priority
+
+1. **`SSEAdapter` interface**, **`channel.watch(adapter)`**, and **Enhanced schema `resources`** — core infrastructure required by all adapters.
+2. **Prisma adapter** — first adapter, matching current app usage.
+3. **MongoDB adapter**, **PostgreSQL adapter**, **Generic EventEmitter adapter** — subsequent adapters, order TBD based on demand.
+
 ### In Scope
 
 - **`SSEAdapter` interface** — standard contract for adapters: `start()`, `stop()`, and a callback hook for emitting events.
 - **`channel.watch(adapter)`** — method on the channel object (from PRD-0002) that connects an adapter and routes its events through `channel.emit()`.
-- **Prisma adapter** — wraps Prisma middleware `$use()` to intercept create/update/delete operations and emit corresponding events.
+- **Prisma adapter** *(priority 1)* — wraps Prisma middleware `$use()` to intercept create/update/delete operations and emit corresponding events.
 - **MongoDB adapter** — wraps a MongoDB `Collection.watch()` Change Stream and maps `insert`, `update`, `replace`, `delete` operations to schema events.
 - **PostgreSQL adapter** — wraps `pg` client `LISTEN`/`NOTIFY` and maps notification payloads to schema events.
 - **Generic EventEmitter adapter** — wraps any Node.js `EventEmitter` (or compatible interface) and maps named events to schema events.
@@ -137,8 +143,8 @@ Database systems already provide change notification mechanisms — MongoDB Chan
 | TypeScript generics complexity with resources + adapters | Medium | Poor DX | Keep the type-level expansion simple; test with real-world schema sizes |
 | Scope creep into query subscriptions | Low | Conflates cache invalidation with live queries | Explicitly out of scope; document the difference |
 
-### Open Questions
+### Resolved Questions
 
-1. **Adapter package structure:** Should adapters live in `reactive-swr/server/adapters/prisma` (subpath exports) or in separate packages (`@reactive-swr/adapter-prisma`)? Subpath exports are simpler to start; separate packages allow independent versioning.
-2. **Resource CRUD customization:** Should `resources` support custom operation names beyond `created/updated/deleted`? E.g., `orders: { operations: ['placed', 'shipped', 'cancelled'] }`. Leaning toward keeping it simple with the standard three and letting explicit `events` handle custom cases.
-3. **Adapter priority ordering:** When multiple adapters emit the same event type, should there be a priority system or does last-write-win? Recommendation: no priority — events are independent and broadcast in order received.
+1. **Adapter package structure:** Subpath exports (`reactive-swr/server/adapters/prisma`, etc.). Simpler than separate packages; can split later if independent versioning becomes necessary.
+2. **Resource CRUD customization:** Standard `created`/`updated`/`deleted` only. Custom operation names are handled through explicit `events` definitions.
+3. **Adapter priority ordering:** No priority system. Events from multiple adapters fire in arrival order. If two adapters emit the same event type, both emissions go through — this is on the developer to avoid.

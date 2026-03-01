@@ -145,6 +145,32 @@ Each event definition supports:
 | `filter` | `(payload) => boolean` | Optional client-side filter |
 | `transform` | `(payload) => payload` | Optional client-side transform |
 
+#### Schema Resources
+
+For CRUD-heavy applications, define resources instead of individual events. Each resource automatically expands into `.created`, `.updated`, and `.deleted` event definitions:
+
+```typescript
+const schema = defineSchema({
+  resources: {
+    orders: {
+      created: { key: '/api/orders', update: 'refetch' },
+      updated: { key: (p: { id: string }) => `/api/orders/${p.id}`, update: 'set' },
+      deleted: { key: '/api/orders', update: 'refetch' },
+    },
+    users: {
+      updated: { key: (p: { id: string }) => `/api/users/${p.id}` },
+    },
+  },
+  // Explicit events can coexist with resources
+  'notification.sent': {
+    key: '/api/notifications',
+    update: 'refetch',
+  },
+})
+```
+
+This generates `orders.created`, `orders.updated`, `orders.deleted`, `users.created`, `users.updated`, `users.deleted`, and `notification.sent` as event types. Omitted operations (e.g., `users.created`) still get a default definition using the resource name as the key and `'set'` as the update strategy. Explicit event definitions always take precedence over generated resource events.
+
 #### `createChannel()` (Server)
 
 `createChannel()` provides a complete server-side SSE endpoint. It handles wire formatting, heartbeats, connection tracking, and cleanup. Import it from `reactive-swr/server`.
@@ -201,6 +227,120 @@ export async function POST(request: Request) {
 
 ```typescript
 channel.close() // Closes all connections, stops heartbeats
+```
+
+#### Database Adapters
+
+Adapters bridge database change notifications to `channel.emit()`, completing the reactive pipeline: **data change -> adapter -> channel.emit() -> SSE -> SWR cache update**. Each adapter accepts a pre-configured client instance -- reactiveSWR never imports a database driver directly.
+
+Connect an adapter with `channel.watch()`:
+
+```typescript
+// Sync adapters (Prisma, EventEmitter) return a cleanup function directly:
+const cleanup = channel.watch(adapter)
+
+// Async adapters (MongoDB, PostgreSQL) return a Promise<cleanup>:
+const cleanup = await channel.watch(adapter)
+
+// Later: cleanup() to stop the adapter
+```
+
+`channel.watch()` returns a cleanup function (or `Promise<cleanup>` for async adapters) that calls `adapter.stop()`. When `channel.close()` is called, all watched adapters are stopped automatically.
+
+**Prisma adapter** -- intercepts create/update/delete via `$use()` middleware:
+
+```typescript
+import { createPrismaAdapter } from 'reactive-swr/server/adapters/prisma'
+
+const adapter = createPrismaAdapter(prisma, {
+  Order: {
+    created: 'orders.created',
+    updated: 'orders.updated',
+    deleted: 'orders.deleted',
+  },
+  User: {
+    updated: 'users.updated',
+  },
+})
+
+channel.watch(adapter) // sync — Prisma uses $use() middleware, no async setup
+```
+
+Note: the Prisma adapter uses `$use()` middleware, which works with Prisma v4-v6. Prisma v7 removed `$use()` in favor of `$extends()` — a migration to Client Extensions is tracked in [#4](https://github.com/queso/reactiveSWR/issues/4). Register the adapter last to ensure it runs after other middleware.
+
+**MongoDB adapter** -- listens to Change Streams with resume token support:
+
+```typescript
+import { createMongoAdapter } from 'reactive-swr/server/adapters/mongodb'
+
+const adapter = createMongoAdapter(db.collection('orders'), {
+  insert: 'orders.created',
+  update: 'orders.updated',
+  replace: 'orders.updated',
+  delete: 'orders.deleted',
+})
+
+await channel.watch(adapter) // async — opens Change Stream
+```
+
+The adapter handles `invalidate` events by reopening the stream and persists resume tokens so reconnections pick up where they left off.
+
+**PostgreSQL adapter** -- maps LISTEN/NOTIFY channels to SSE events:
+
+```typescript
+import { createPgAdapter } from 'reactive-swr/server/adapters/pg'
+
+const adapter = createPgAdapter(pgClient, {
+  order_changes: 'orders.updated',
+  user_changes: 'users.updated',
+})
+
+await channel.watch(adapter) // async — issues LISTEN queries
+```
+
+NOTIFY payloads are parsed as JSON automatically. Note the PostgreSQL NOTIFY payload limit of 8000 bytes.
+
+**EventEmitter adapter** -- bridges any `on`/`off`-compatible event source:
+
+```typescript
+import { createEmitterAdapter } from 'reactive-swr/server/adapters/emitter'
+
+const adapter = createEmitterAdapter(myEventBus, {
+  'order:changed': 'orders.updated',
+  'user:changed': 'users.updated',
+})
+
+channel.watch(adapter)
+```
+
+Works with Node.js `EventEmitter`, Redis pub/sub clients, or any object with `on(event, listener)` and `off(event, listener)` methods.
+
+All adapters are tree-shakeable -- importing one does not pull in the others. They can also be imported from the barrel export at `reactive-swr/server`:
+
+```typescript
+import {
+  createPrismaAdapter,
+  createMongoAdapter,
+  createPgAdapter,
+  createEmitterAdapter,
+} from 'reactive-swr/server'
+```
+
+For third-party adapter authors, the `SSEAdapter` interface is exported from `reactive-swr/server`:
+
+```typescript
+import type { SSEAdapter } from 'reactive-swr/server'
+
+function createMyAdapter(client: MyClient): SSEAdapter {
+  return {
+    start(emit) {
+      // Begin watching for changes, call emit(eventType, payload) when they occur
+    },
+    stop() {
+      // Clean up resources
+    },
+  }
+}
 ```
 
 #### SSEProvider `schema` Prop

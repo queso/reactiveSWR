@@ -432,9 +432,15 @@ export function SSEProvider({
       // Release the guard before returning on error
       creatingConnectionRef.current = false
 
+      const providerError = new SSEProviderError(
+        error instanceof Error ? error.message : String(error),
+        'TRANSPORT',
+        { cause: error },
+      )
+
       configRef.current.onEventError?.(
         { type: 'transport_error', payload: null },
-        error,
+        providerError,
       )
       // Install a no-op closed transport to prevent re-entry on next render
       eventSourceRef.current = {
@@ -450,11 +456,7 @@ export function SSEProvider({
       updateStatus({
         connected: false,
         connecting: false,
-        error: new SSEProviderError(
-          error instanceof Error ? error.message : String(error),
-          'TRANSPORT',
-          { cause: error },
-        ),
+        error: providerError,
       })
       return
     }

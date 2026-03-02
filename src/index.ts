@@ -23,9 +23,12 @@ export type {
   SchemaEventDefinition,
   SchemaResult,
   SSEConfig,
+  SSEErrorCode,
   SSEProviderProps,
   SSERequestOptions,
   SSEStatus,
   SSETransport,
   UpdateStrategy,
 } from './types.ts'
+// Re-export structured error class (value export, not type-only)
+export { SSEProviderError } from './types.ts'

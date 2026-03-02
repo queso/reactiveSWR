@@ -77,6 +77,14 @@ describe('reactiveSWR types', () => {
     // @ts-expect-error - ParsedEvent requires 'type' field
     const _badEvent: ParsedEvent = { payload: 'data' }
 
+    // @ts-expect-error - ParsedEvent requires 'type' to be a string, not a number
+    const _numericType: ParsedEvent = { type: 123, payload: 'data' }
+
+    // @ts-expect-error - parseEvent callback must return ParsedEvent with type: string
+    const _parseEventWithNumericType: (event: MessageEvent) => ParsedEvent = (
+      _e: MessageEvent,
+    ) => ({ type: 123, payload: 'data' })
+
     // ReconnectConfig - all fields are optional, empty object is valid
     const emptyReconnect: ReconnectConfig = {}
     expect(emptyReconnect).toBeDefined()

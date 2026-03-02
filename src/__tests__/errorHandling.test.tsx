@@ -927,4 +927,310 @@ describe('Error Handling and Debug Mode', () => {
       expect(mutateCalls[0].data).toEqual({ data: 'will succeed' })
     })
   })
+
+  describe('parseEvent non-Error throws', () => {
+    it('should wrap a thrown string in a proper Error for onmessage path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {},
+        parseEvent: () => {
+          throw 'string error'
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      // Trigger the onmessage path with a generic message
+      source.simulateMessage('{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+      expect((onEventErrorCalls[0].error as Error).message).toContain(
+        'string error',
+      )
+    })
+
+    it('should wrap a thrown object in a proper Error for onmessage path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {},
+        parseEvent: () => {
+          throw { code: 'FAIL', reason: 'bad parse' }
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateMessage('{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+
+    it('should wrap thrown null in a proper Error for onmessage path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {},
+        parseEvent: () => {
+          throw null
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateMessage('{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+
+    it('should wrap thrown undefined in a proper Error for onmessage path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {},
+        parseEvent: () => {
+          throw undefined
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateMessage('{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+
+    it('should pass an Error through unchanged for onmessage path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+      const originalError = new Error('original parse failure')
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {},
+        parseEvent: () => {
+          throw originalError
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateMessage('{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+      expect((onEventErrorCalls[0].error as Error).message).toBe(
+        'original parse failure',
+      )
+      // Original error is preserved as cause in the SSEProviderError wrapper
+      expect((onEventErrorCalls[0].error as Error).cause).toBe(originalError)
+    })
+
+    it('should wrap a thrown string in a proper Error for named-event path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {
+          'data.updated': {
+            key: '/api/data',
+            update: 'set',
+          },
+        },
+        parseEvent: () => {
+          throw 'string error in named event'
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      // Trigger the named-event listener path
+      source.simulateEventRaw('data.updated', '{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+      expect((onEventErrorCalls[0].error as Error).message).toContain(
+        'string error in named event',
+      )
+    })
+
+    it('should wrap a thrown object in a proper Error for named-event path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {
+          'data.updated': {
+            key: '/api/data',
+            update: 'set',
+          },
+        },
+        parseEvent: () => {
+          throw { code: 'FAIL' }
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateEventRaw('data.updated', '{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+
+    it('should wrap thrown null in a proper Error for named-event path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {
+          'data.updated': {
+            key: '/api/data',
+            update: 'set',
+          },
+        },
+        parseEvent: () => {
+          throw null
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateEventRaw('data.updated', '{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+
+    it('should wrap thrown undefined in a proper Error for named-event path', () => {
+      const onEventErrorCalls: Array<{ event: ParsedEvent; error: unknown }> =
+        []
+
+      const config: SSEConfig = {
+        url: 'http://localhost:3000/events',
+        events: {
+          'data.updated': {
+            key: '/api/data',
+            update: 'set',
+          },
+        },
+        parseEvent: () => {
+          throw undefined
+        },
+        onEventError: (event, error) => {
+          onEventErrorCalls.push({ event, error })
+        },
+      }
+
+      renderToString(
+        createElement(
+          SSEProvider,
+          { config },
+          createElement('div', null, 'child'),
+        ),
+      )
+
+      const source = MockEventSource.instances[0]
+      source.simulateEventRaw('data.updated', '{}')
+
+      expect(onEventErrorCalls.length).toBe(1)
+      expect(onEventErrorCalls[0].error).toBeInstanceOf(Error)
+    })
+  })
 })

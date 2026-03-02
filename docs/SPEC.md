@@ -723,11 +723,29 @@ The unified reconnection logic applies to all transport types: on error with `re
 
 Formula: `min(initialDelay * (backoffMultiplier ^ attemptNumber), maxDelay)`
 
+### maxAttempts Exhaustion
+
+When the attempt counter reaches `maxAttempts`, reconnection stops silently. No additional error callback is fired at the point of exhaustion — `onError` fires on each failed attempt, but there is no dedicated "gave up" notification.
+
+To detect this condition, monitor `useSSEStatus()`:
+
+```typescript
+const { connected, error, reconnectAttempt } = useSSEStatus()
+
+// connected: false — no active connection
+// error: populated with the last connection error
+// reconnectAttempt: equals maxAttempts (or close to it)
+```
+
+When these three signals align — `connected` is `false`, `error` is set, and no further `reconnectAttempt` increments are observed — the provider has stopped retrying. At that point you can display a manual reconnect UI or surface the error to the user.
+
+The visibility handler (tab focus) applies the **same** `maxAttempts` guard. After exhaustion, switching back to a hidden-then-visible tab will **not** trigger another reconnect attempt. If you need unlimited reconnection on tab focus regardless of prior failures, set `maxAttempts: Infinity` (the default) or reset the page.
+
 ### Browser Tab Visibility
 
 When the browser tab becomes hidden:
 - SSE connection may be throttled by the browser
-- On tab focus, connection is checked and re-established if needed
+- On tab focus, connection is checked and re-established if needed, subject to the `maxAttempts` limit
 - Pending reconnect timers are cancelled before immediate reconnection to avoid duplicate connections
 
 ### Error Handling
@@ -993,6 +1011,126 @@ mockSSE.restore: () => void
 
 - `mockSSE`
 - Types: `MockSSEControls`, `SSEEventData`
+
+---
+
+## Troubleshooting
+
+### Connection stuck in "connecting" state
+
+**Check the SSE endpoint response.**
+The server must respond with HTTP 200 and `Content-Type: text/event-stream`. Any other status code or content type causes the connection to fail silently or loop.
+
+```text
+# Verify with curl
+curl -v -N -H "Accept: text/event-stream" http://localhost:3000/api/events
+# Look for: < HTTP/1.1 200 OK
+#           < Content-Type: text/event-stream
+```
+
+**Check for CORS errors.**
+Open the browser devtools Network tab. If the SSE request is blocked, you will see a CORS error in the console. Ensure the server sets `Access-Control-Allow-Origin` for your client origin.
+
+**Check credentials configuration.**
+If your endpoint requires cookies or auth headers, the native `EventSource` does not send credentials by default. Switch to the fetch transport and set the appropriate headers:
+
+```typescript
+const config: SSEConfig = {
+  url: '/api/events',
+  headers: { Authorization: `Bearer ${token}` },
+  // or for cookies:
+  // credentials: 'include' requires a custom transport
+  events: { ... },
+}
+```
+
+---
+
+### Events not arriving
+
+**Confirm events are terminated with `\n\n`.**
+SSE requires each event block to end with a double newline. A single `\n` is a field separator, not an event boundary. The server must write:
+
+```text
+data: {"type":"order:updated","payload":{...}}\n\n
+```
+
+Use `formatSSEEvent` or `formatSSEData` from the library to avoid this mistake.
+
+**Enable debug mode** to log every received event and routing decision:
+
+```typescript
+const config: SSEConfig = {
+  url: '/api/events',
+  debug: true,
+  events: { ... },
+}
+// Console will show: [reactiveSWR] Event received: { type: "...", payload: ... }
+// And for unmatched events: [reactiveSWR] Unhandled event type: "..."
+```
+
+**Verify `parseEvent` returns the correct shape.**
+The default parser expects unnamed events to contain JSON with `{ type: string, payload: unknown }`. If your server sends a different format, provide a custom `parseEvent`:
+
+```typescript
+parseEvent: (event) => ({
+  type: event.type || 'message',   // must be a non-empty string
+  payload: JSON.parse(event.data), // payload can be any value
+})
+```
+
+If `parseEvent` throws or returns an object missing `type`, the event is silently dropped (or logged with `debug: true`).
+
+---
+
+### Memory usage grows over time
+
+**Ensure `useSSEEvent` cleanup functions are called.**
+`useSSEEvent` registers a handler inside `SSEProvider`. In custom hooks that call `useSSEEvent` directly, verify the enclosing component unmounts cleanly. If you ever call the subscribe API from `useSSEContext` manually, save and invoke the returned cleanup function:
+
+```typescript
+const { subscribe } = useSSEContext()
+useEffect(() => {
+  const cleanup = subscribe('order:updated', handleOrderUpdate)
+  return cleanup  // required — omitting this leaks the handler
+}, [subscribe])
+```
+
+**Check `useSSEStream` with non-serializable bodies.**
+`useSSEStream` uses reference counting to share and close connections. When the `body` option is a non-serializable type (`Blob`, `FormData`, `ArrayBuffer`, `ReadableStream`), each hook call gets its own connection key. Verify the component unmounts fully (no leaked component trees) so the refCount reaches zero and the transport closes.
+
+---
+
+### Reconnection not working
+
+**Check whether `maxAttempts` has been reached.**
+The default is `Infinity`, but if you set a finite limit the provider stops retrying after that many failures. Check `useSSEStatus().reconnectAttempt` against your configured `maxAttempts`:
+
+```typescript
+const { reconnectAttempt, connecting, connected } = useSSEStatus()
+// reconnectAttempt increments on each retry
+```
+
+**Inspect the `onError` callback for the error type.**
+Network-level errors (DNS failure, server down) arrive as a DOM `Event` on the `onerror` handler — they do not carry a descriptive message. Log the event to confirm the connection is actually closing:
+
+```typescript
+const config: SSEConfig = {
+  url: '/api/events',
+  onError: (event) => {
+    console.error('SSE error event:', event)
+  },
+  onDisconnect: () => {
+    console.warn('SSE disconnected, reconnection scheduled')
+  },
+  onConnect: () => {
+    console.info('SSE reconnected successfully')
+  },
+  events: { ... },
+}
+```
+
+If `onDisconnect` never fires after `onError`, the transport's `readyState` did not transition to `CLOSED` (2). This can happen with custom transports that do not call `onerror` after closing — ensure your transport implementation sets `readyState` to `2` and fires `onerror` when the stream ends unexpectedly.
 
 ---
 

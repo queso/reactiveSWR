@@ -1,6 +1,35 @@
 import type { ReactNode } from 'react'
 
 /**
+ * Error codes that distinguish the origin of an SSEProviderError.
+ *
+ * - 'TRANSPORT': The custom transport factory threw during construction.
+ * - 'NETWORK': The underlying connection reported an error (EventSource onerror).
+ * - 'PARSE': Event data could not be parsed (e.g. invalid JSON).
+ * - 'UNKNOWN': An error occurred that does not fit the above categories.
+ */
+export type SSEErrorCode = 'TRANSPORT' | 'NETWORK' | 'PARSE' | 'UNKNOWN'
+
+/**
+ * Structured error type thrown by SSEProvider.
+ * Carries a `code` field so that `onError` / `onEventError` handlers can
+ * distinguish transport failures from parse failures without inspecting the
+ * message string.
+ */
+export class SSEProviderError extends Error {
+  readonly code: SSEErrorCode
+
+  constructor(message: string, code: SSEErrorCode, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'SSEProviderError'
+    this.code = code
+
+    // Restore the prototype chain in environments that transpile classes.
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+/**
  * Parsed SSE event with type and payload
  */
 export interface ParsedEvent {
@@ -116,8 +145,7 @@ interface SSEConfigBase {
  * When `schema` is provided, `events` must not be.
  */
 interface SSEConfigWithSchema extends SSEConfigBase {
-  // biome-ignore lint/suspicious/noExplicitAny: schema type is erased at config level
-  schema: Record<string, any>
+  schema: Record<string, unknown>
   events?: never
 }
 

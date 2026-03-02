@@ -18,6 +18,7 @@ import type {
   SSEStatus,
   SSETransport,
 } from './types.ts'
+import { SSEProviderError } from './types.ts'
 
 interface SSEContextValue {
   status: SSEStatus
@@ -237,6 +238,12 @@ export function SSEProvider({
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attemptCountRef = useRef<number>(0)
 
+  // Re-entrancy guard: prevents overlapping createConnection() calls when URL
+  // changes rapidly across multiple renders. Also serves as a monotonic
+  // connection ID so that callbacks from stale connections are ignored.
+  const connectionGenerationRef = useRef<number>(0)
+  const creatingConnectionRef = useRef<boolean>(false)
+
   const subscribe = useCallback(
     (eventType: string, handler: (payload: unknown) => void) => {
       const subscribers = subscribersRef.current
@@ -378,9 +385,33 @@ export function SSEProvider({
   )
 
   /**
-   * Create and configure a new connection (EventSource or transport)
+   * Create and configure a new connection (EventSource or transport).
+   *
+   * Re-entrancy guard: if a createConnection() call is already in progress
+   * (possible during rapid URL changes across synchronous renders), the new call
+   * is skipped. The caller is responsible for clearing `creatingConnectionRef`
+   * only through this function's own execution paths.
+   *
+   * Each call also increments a monotonic generation counter so that callbacks
+   * installed by a superseded connection can detect they are stale and bail out
+   * early, preventing out-of-order onConnect / onDisconnect sequences.
    */
   const createConnection = useCallback(() => {
+    // Re-entrancy guard: bail out if a connection is already being created
+    if (creatingConnectionRef.current) {
+      return
+    }
+    creatingConnectionRef.current = true
+
+    // Increment generation so closures from any previous connection know they
+    // are stale. Capture the current generation for this connection's callbacks.
+    connectionGenerationRef.current += 1
+    const myGeneration = connectionGenerationRef.current
+
+    // Helper: returns true when this connection is still the active one
+    const isActiveConnection = () =>
+      myGeneration === connectionGenerationRef.current
+
     // Clean up any existing connection
     if (eventSourceRef.current) {
       const oldConnection = eventSourceRef.current
@@ -398,9 +429,18 @@ export function SSEProvider({
     try {
       connection = createTransport(url)
     } catch (error) {
+      // Release the guard before returning on error
+      creatingConnectionRef.current = false
+
+      const providerError = new SSEProviderError(
+        error instanceof Error ? error.message : String(error),
+        'TRANSPORT',
+        { cause: error },
+      )
+
       configRef.current.onEventError?.(
         { type: 'transport_error', payload: null },
-        error,
+        providerError,
       )
       // Install a no-op closed transport to prevent re-entry on next render
       eventSourceRef.current = {
@@ -416,7 +456,7 @@ export function SSEProvider({
       updateStatus({
         connected: false,
         connecting: false,
-        error: error instanceof Error ? error : new Error(String(error)),
+        error: providerError,
       })
       return
     }
@@ -424,8 +464,16 @@ export function SSEProvider({
     eventSourceRef.current = connection
     currentUrlRef.current = url
 
+    // Release the guard now that the connection object is stored
+    creatingConnectionRef.current = false
+
     // Handle connection open
     connection.onopen = () => {
+      // Ignore callbacks from superseded connections (rapid URL changes)
+      if (!isActiveConnection()) {
+        return
+      }
+
       // Clear any pending reconnect timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
@@ -446,8 +494,13 @@ export function SSEProvider({
 
     // Handle connection error
     connection.onerror = (event: Event) => {
+      // Ignore callbacks from superseded connections (rapid URL changes)
+      if (!isActiveConnection()) {
+        return
+      }
+
       updateStatus({
-        error: new Error('EventSource connection error'),
+        error: new SSEProviderError('SSE connection error', 'NETWORK'),
       })
       configRef.current.onError?.(event)
 
@@ -489,6 +542,11 @@ export function SSEProvider({
 
     // Handle generic messages (unnamed events)
     connection.onmessage = (event: MessageEvent) => {
+      // Ignore messages from superseded connections (rapid URL changes)
+      if (!isActiveConnection()) {
+        return
+      }
+
       try {
         const parseEvent = configRef.current.parseEvent ?? defaultParseEvent
         const parsed = parseEvent(event)
@@ -499,15 +557,45 @@ export function SSEProvider({
         }
         configRef.current.onEventError?.(
           { type: 'parse_error', payload: event.data },
-          error as Error,
+          new SSEProviderError(
+            error instanceof Error ? error.message : String(error),
+            'PARSE',
+            { cause: error },
+          ),
         )
       }
     }
 
-    // Register listeners for each named event type in config.events
+    // Register listeners for each named event type in config.events.
+    //
+    // Memoization of these handler closures (e.g. via useRef<Map<string, handler>>)
+    // was evaluated and intentionally skipped for the following reasons:
+    //
+    // 1. These closures are NOT recreated on every render. createConnection() is a
+    //    useCallback and is only called at connection time: initial mount, URL change,
+    //    or reconnection after a disconnect. Between connections the same handler
+    //    instances remain registered on the EventSource — no render-driven recreation.
+    //
+    // 2. Reusing handlers across reconnections would be unsafe. createConnection's
+    //    dependencies include processEvent, which may change identity if mutate or
+    //    other upstream hooks change. A memoized handler Map would silently close over
+    //    a stale processEvent, producing incorrect behaviour on reconnect.
+    //
+    // 3. The allocation overhead is proportional to the number of event types
+    //    (typically a small constant) and occurs only at connection/reconnection time,
+    //    not continuously. The GC pressure is negligible in practice.
+    //
+    // Correctness is preserved by reading all mutable config through configRef.current
+    // inside each handler; only the per-event `eventType` string is closed over by
+    // value, which is the intended behaviour for parseNamedEvent dispatch.
     const eventTypes = Object.keys(configRef.current.events)
     for (const eventType of eventTypes) {
       const handler = (event: MessageEvent) => {
+        // Ignore messages from superseded connections (rapid URL changes)
+        if (!isActiveConnection()) {
+          return
+        }
+
         try {
           let parsed: ParsedEvent
           if (configRef.current.parseEvent) {
@@ -524,7 +612,11 @@ export function SSEProvider({
           }
           configRef.current.onEventError?.(
             { type: 'parse_error', payload: event.data },
-            error as Error,
+            new SSEProviderError(
+              error instanceof Error ? error.message : String(error),
+              'PARSE',
+              { cause: error },
+            ),
           )
         }
       }

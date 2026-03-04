@@ -1,6 +1,6 @@
 {
   "name": "reactive-swr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Meteor-style reactivity for React using SWR and Server-Sent Events",
   "module": "src/index.ts",
   "type": "module",

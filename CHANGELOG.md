@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-04
+
 ### Added
 - `SSEAdapter` interface and `AdapterMapping` type for building database/event source adapters (`reactive-swr/server`) (#WI-244)
 - `channel.watch(adapter)` method to connect adapters to SSE channels with idempotent cleanup (#WI-246)
@@ -18,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ResourceDefinition` and `ResourceOperationDefinition` types for schema resource definitions (#WI-245)
 - Subpath exports for individual adapters: `reactive-swr/server/adapters/prisma`, `reactive-swr/server/adapters/mongodb`, `reactive-swr/server/adapters/pg`, `reactive-swr/server/adapters/emitter` (#WI-251)
 - Barrel export file for all adapters at `src/server/adapters/index.ts` (#WI-251)
+- `SSEProviderError` class with typed error codes (`TRANSPORT`, `NETWORK`, `PARSE`) for structured error handling
+- `SSEErrorCode` type exported from main entry point
+- `setLatency(ms)` and `resetLatency()` methods on `mockSSE` controls for simulating network delays in tests
+- `formatSSEData` and `formatSSEEvent` re-exported from `reactive-swr/server` entry point
+- Troubleshooting section in SPEC.md covering connection issues, missing events, memory growth, and reconnection
+- Documentation for `maxAttempts` exhaustion behavior and tab visibility interaction
 
 ### Fixed
 - `SchemaResult` type now includes resource-expanded event keys (`.created`/`.updated`/`.deleted`) for proper TypeScript inference
@@ -32,12 +40,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - EventEmitter adapter resets `started = false` in `stop()` to allow restart
 - `channel.watch()` clears stopped state on re-watch so the same adapter can be reused
 - Channel error messages now include operation context (e.g., "Cannot connect: channel is closed")
+- Race condition during rapid URL changes — added re-entrancy guard and generation counter to prevent overlapping `createConnection()` calls and out-of-order `onConnect`/`onDisconnect` callbacks
+- Non-Error throws in custom `parseEvent` callbacks now properly wrapped in `Error` instances
+- `SSEProviderError` always preserves the original thrown value as `cause` for debugging
+- Transport errors passed to `onEventError` now use the same `SSEProviderError` instance as `updateStatus`
 
 ### Changed
 - `defineSchema()` now accepts an optional `resources` key alongside explicit event definitions; explicit definitions take precedence over generated resource events (#WI-245)
 - `channel.close()` now stops all watched adapters in addition to closing client connections (#WI-246)
 - Build script updated to compile individual adapter entry points for tree-shakeable imports (#WI-251)
 - `tsconfig.emit.json` updated to include adapter source files for declaration generation (#WI-251)
+- `SSEConfigWithSchema.schema` type tightened from `Record<string, any>` to `Record<string, unknown>`
+- `mockSSE` send methods (`sendEvent`, `sendRaw`, `sendSSE`) now return `Promise<void>` to support latency simulation
+
+### Removed
+- Redundant build pipeline test that duplicated CI build step verification
 
 ## [0.1.0] - 2026-02-22
 

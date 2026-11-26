@@ -1,0 +1,80 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes that version to npm. Same setup as
+# queso/threemf-to-glb: npm trusted publishing (OIDC), so there is no
+# NPM_TOKEN secret and nothing depends on a login on anyone's machine.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write # npm trusted publishing and provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        run: |
+          pkg="$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "package.json version ($pkg) does not match tag ($GITHUB_REF_NAME)" >&2
+            exit 1
+          fi
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      # Builds, packs the way npm publish does, and runs `next build` on the
+      # fixture app against that tarball. This is the check that fails on 0.2.0.
+      - name: Next.js build check
+        run: bun run check:next
+
+      # Trusted publishing needs a current npm; the one bundled with Node may
+      # predate it. The diagnostic line explains the next auth failure:
+      # no OIDC vars means the id-token permission is not reaching this job;
+      # vars present but ENEEDAUTH on publish means the trusted publisher on
+      # npmjs.com does not match (repo queso/reactiveSWR, workflow release.yml,
+      # compared case-sensitively).
+      - name: Update npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          echo "node=$(node --version) npm=$(npm --version)"
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "OIDC vars: present"
+          else
+            echo "OIDC vars: MISSING, id-token permission not reaching this job"
+          fi
+
+      # `prepare` runs `bun run build`, which pins NODE_ENV=production and ends
+      # with check:dist, so the published dist is rebuilt here from the tag.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub release if missing
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

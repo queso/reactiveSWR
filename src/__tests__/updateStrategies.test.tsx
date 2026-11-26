@@ -9,8 +9,8 @@ import {
   mock,
 } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import type { SSEConfig } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for update strategies (WI-064).
@@ -146,6 +146,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
 })
 
@@ -165,7 +167,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -193,7 +195,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -221,7 +223,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -249,7 +251,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -276,7 +278,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -314,7 +316,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -345,7 +347,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -375,7 +377,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -403,7 +405,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -431,7 +433,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -470,7 +472,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -508,7 +510,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -545,7 +547,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -578,7 +580,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -608,7 +610,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -642,7 +644,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -676,7 +678,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -707,7 +709,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -737,7 +739,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -774,7 +776,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -815,7 +817,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -849,7 +851,7 @@ describe('Update Strategies', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },

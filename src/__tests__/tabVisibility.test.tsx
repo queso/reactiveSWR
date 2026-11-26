@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
 import type { SSEConfig, SSEStatus } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for tab visibility handling (WI-069).
@@ -208,6 +208,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
   globalThis.setTimeout = originalSetTimeout
   globalThis.clearTimeout = originalClearTimeout
@@ -228,7 +230,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -270,7 +272,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -304,7 +306,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -338,7 +340,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -367,7 +369,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -398,7 +400,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -437,7 +439,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
 
       expect(visibilityChangeListeners.size).toBe(0)
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -459,7 +461,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         events: {},
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -486,7 +488,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -523,7 +525,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -555,7 +557,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -597,7 +599,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -635,7 +637,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -668,7 +670,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -704,7 +706,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -739,7 +741,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -777,7 +779,7 @@ describe('SSEProvider Tab Visibility Handling', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 

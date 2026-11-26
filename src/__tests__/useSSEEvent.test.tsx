@@ -3,6 +3,7 @@ import { createElement, useState } from 'react'
 import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
 import type { SSEConfig } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for useSSEEvent hook (WI-067).
@@ -100,6 +101,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
 })
 
@@ -131,7 +134,7 @@ describe('useSSEEvent', () => {
         return createElement('div', null, 'listening')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },
@@ -157,7 +160,7 @@ describe('useSSEEvent', () => {
         return createElement('div', null, 'listening')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },
@@ -189,7 +192,7 @@ describe('useSSEEvent', () => {
       }
 
       // Mount component
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },
@@ -271,7 +274,7 @@ describe('useSSEEvent', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: extendedConfig },
@@ -315,7 +318,7 @@ describe('useSSEEvent', () => {
         return createElement('div', null, 'order consumer')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },
@@ -355,7 +358,7 @@ describe('useSSEEvent', () => {
         return createElement('div', null, 'listening')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },
@@ -406,7 +409,7 @@ describe('useSSEEvent', () => {
       }
 
       // First render
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: extendedConfig },
@@ -415,7 +418,7 @@ describe('useSSEEvent', () => {
       )
 
       // Second render (simulates re-render with new handler)
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: extendedConfig },
@@ -461,7 +464,7 @@ describe('useSSEEvent', () => {
       }
 
       // First render with multiplier=1
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: extendedConfig },
@@ -476,7 +479,7 @@ describe('useSSEEvent', () => {
 
       // Re-render with multiplier=10 (new handler closure via props)
       currentMultiplier = 10
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: extendedConfig },
@@ -504,7 +507,7 @@ describe('useSSEEvent', () => {
       }
 
       expect(() => {
-        renderToString(createElement(OrphanConsumer))
+        render(createElement(OrphanConsumer))
       }).toThrow()
     })
   })
@@ -526,7 +529,7 @@ describe('useSSEEvent', () => {
         return createElement('div', null, 'typed')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: testConfig },

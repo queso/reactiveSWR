@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
 import type {
   ParsedEvent,
@@ -8,6 +7,7 @@ import type {
   SSEStatus,
   SSETransport,
 } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for transport selection integration in SSEProvider (WI-220).
@@ -367,6 +367,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   cleanupFetchMock()
   globalThis.EventSource = originalEventSource
   globalThis.setTimeout = originalSetTimeout
@@ -392,7 +394,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -433,7 +435,7 @@ describe('SSEProvider Transport Selection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -470,7 +472,7 @@ describe('SSEProvider Transport Selection', () => {
         method: 'POST',
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -489,7 +491,7 @@ describe('SSEProvider Transport Selection', () => {
         body: { query: 'SELECT * FROM events' },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -507,7 +509,7 @@ describe('SSEProvider Transport Selection', () => {
         headers: { Authorization: 'Bearer token123' },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -530,7 +532,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -549,7 +551,7 @@ describe('SSEProvider Transport Selection', () => {
         // method is intentionally omitted — createFetchTransport defaults to POST
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -580,7 +582,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -616,7 +618,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -647,7 +649,7 @@ describe('SSEProvider Transport Selection', () => {
 
       // Should not throw during render
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -690,7 +692,7 @@ describe('SSEProvider Transport Selection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -735,7 +737,7 @@ describe('SSEProvider Transport Selection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -774,7 +776,7 @@ describe('SSEProvider Transport Selection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -809,7 +811,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -840,7 +842,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -871,7 +873,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -912,7 +914,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -948,7 +950,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -989,7 +991,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1028,7 +1030,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1067,7 +1069,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1106,7 +1108,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1148,7 +1150,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1184,7 +1186,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1219,7 +1221,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1246,7 +1248,7 @@ describe('SSEProvider Transport Selection', () => {
         transport: (_url: string) => mockTransport,
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1274,7 +1276,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1312,7 +1314,7 @@ describe('SSEProvider Transport Selection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },

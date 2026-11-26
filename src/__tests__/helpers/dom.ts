@@ -8,16 +8,32 @@
  *
  * Call `installDom()` before rendering and `cleanupDom()` in afterEach. Only
  * `window` and `document` are installed, so Bun's own fetch, Request,
- * Response and EventSource globals are left alone.
+ * Response and EventSource globals are left alone. `window` stays installed
+ * for the rest of the process once set, because React DOM reads
+ * `window.event` when it schedules an update, which can happen after a test
+ * ends (a status update from a connection callback). `document` is set only
+ * while a test runs and only when the test has not installed its own.
  */
 
 import { Window } from 'happy-dom'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-// Tell React this is a test environment so act() flushes effects without warnings
+// React warns about any state update outside act() while
+// IS_REACT_ACT_ENVIRONMENT is true, and warns about act() itself while it is
+// not. These tests fire connection callbacks outside act() on purpose (to
+// mirror the browser), so the flag is set only for the duration of each act().
 const reactGlobals = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-reactGlobals.IS_REACT_ACT_ENVIRONMENT = true
+
+/** Run `fn` inside act() and flush the updates and effects it causes. */
+export function actSync(fn: () => void): void {
+  reactGlobals.IS_REACT_ACT_ENVIRONMENT = true
+  try {
+    act(fn)
+  } finally {
+    reactGlobals.IS_REACT_ACT_ENVIRONMENT = false
+  }
+}
 
 interface Mounted {
   root: Root
@@ -26,23 +42,20 @@ interface Mounted {
 
 const mounted: Mounted[] = []
 let happyWindow: Window | null = null
-let savedWindow: unknown
-let savedDocument: unknown
-let installed = false
+let installedDocument = false
 
-/** Install a happy-dom window and document unless a test already set its own document. */
+/** Install the happy-dom window, and its document unless a test set its own. */
 export function installDom(): void {
-  if (installed) return
   // biome-ignore lint/suspicious/noExplicitAny: swapping globals for tests
   const g = globalThis as any
-  savedWindow = g.window
-  savedDocument = g.document
-  happyWindow = new Window()
-  g.window = happyWindow
+  if (happyWindow === null) {
+    happyWindow = new Window()
+    g.window = happyWindow
+  }
   if (g.document === undefined) {
     g.document = happyWindow.document
+    installedDocument = true
   }
-  installed = true
 }
 
 /** Mount `element` and run its effects. Returns a function that unmounts it. */
@@ -54,7 +67,7 @@ export function render(element: ReactNode): { unmount: () => void } {
   const container = doc.createElement('div') as unknown as HTMLElement
   doc.body.appendChild(container as unknown as Node as never)
   const root = createRoot(container)
-  act(() => {
+  actSync(() => {
     root.render(element)
   })
   const entry = { root, container }
@@ -64,7 +77,7 @@ export function render(element: ReactNode): { unmount: () => void } {
       const index = mounted.indexOf(entry)
       if (index === -1) return
       mounted.splice(index, 1)
-      act(() => {
+      actSync(() => {
         root.unmount()
       })
     },
@@ -72,28 +85,30 @@ export function render(element: ReactNode): { unmount: () => void } {
 }
 
 /** Run `fn` inside act() so state updates and effects it causes are flushed. */
-export function flush(fn: () => void | Promise<void>): Promise<void> {
-  return act(async () => {
-    await fn()
-  })
+export async function flush(fn: () => void | Promise<void>): Promise<void> {
+  reactGlobals.IS_REACT_ACT_ENVIRONMENT = true
+  try {
+    await act(async () => {
+      await fn()
+    })
+  } finally {
+    reactGlobals.IS_REACT_ACT_ENVIRONMENT = false
+  }
 }
 
-/** Unmount everything `render` mounted and restore the globals installDom replaced. */
+/** Unmount everything `render` mounted and remove the document installDom set. */
 export function cleanupDom(): void {
   while (mounted.length > 0) {
     const entry = mounted.pop() as Mounted
-    act(() => {
+    actSync(() => {
       entry.root.unmount()
     })
+    entry.container.remove()
   }
-  if (!installed) return
   // biome-ignore lint/suspicious/noExplicitAny: restoring globals for tests
   const g = globalThis as any
-  g.window = savedWindow
-  if (g.document === happyWindow?.document) {
-    g.document = savedDocument
+  if (installedDocument && g.document === happyWindow?.document) {
+    g.document = undefined
   }
-  happyWindow?.close()
-  happyWindow = null
-  installed = false
+  installedDocument = false
 }

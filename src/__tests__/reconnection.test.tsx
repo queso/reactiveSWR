@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
 import type { SSEConfig, SSEStatus } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for SSEProvider reconnection with exponential backoff (WI-065).
@@ -174,6 +174,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
   globalThis.setTimeout = originalSetTimeout
   globalThis.clearTimeout = originalClearTimeout
@@ -192,7 +194,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -225,7 +227,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -258,7 +260,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -290,7 +292,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -338,7 +340,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -388,7 +390,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -425,7 +427,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -463,7 +465,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -504,7 +506,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -544,7 +546,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -586,7 +588,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -613,7 +615,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -640,7 +642,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -660,7 +662,7 @@ describe('SSEProvider Reconnection', () => {
         // No reconnect config - should use defaults (enabled: true)
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -696,7 +698,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -738,7 +740,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -768,7 +770,7 @@ describe('SSEProvider Reconnection', () => {
       // We cannot directly test unmount in SSR, but we can verify the cleanup
       // mechanism is in place by checking the useEffect cleanup is called
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -798,7 +800,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -832,7 +834,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -864,7 +866,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -907,7 +909,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -943,7 +945,7 @@ describe('SSEProvider Reconnection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },

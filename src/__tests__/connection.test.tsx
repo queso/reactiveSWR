@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import { SSEProvider, useSSEContext } from '../SSEProvider.tsx'
 import type { ParsedEvent, SSEConfig, SSEStatus } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for EventSource connection management (WI-063).
@@ -130,6 +130,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
 })
 
@@ -143,7 +145,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -171,7 +173,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'status')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -191,7 +193,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -228,7 +230,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -259,7 +261,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -287,7 +289,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -321,7 +323,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -361,7 +363,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -395,7 +397,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'status')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(StatusCapture)),
       )
 
@@ -420,7 +422,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -454,7 +456,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -494,7 +496,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -548,7 +550,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -597,7 +599,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(EventSubscriber)),
       )
 
@@ -621,7 +623,7 @@ describe('SSEProvider EventSource Connection', () => {
         events: {},
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -648,7 +650,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -696,7 +698,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'multi-subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(MultiSubscriber)),
       )
 
@@ -743,7 +745,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'subscriber')
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -789,7 +791,7 @@ describe('SSEProvider EventSource Connection', () => {
         return createElement('div', null, 'typed-subscriber')
       }
 
-      renderToString(
+      render(
         createElement(SSEProvider, { config }, createElement(TypedSubscriber)),
       )
 
@@ -831,7 +833,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: configA },
@@ -856,7 +858,7 @@ describe('SSEProvider EventSource Connection', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: configA },
@@ -913,7 +915,7 @@ describe('SSEProvider EventSource Connection', () => {
       const connectCalls: string[] = []
 
       // Render with URL A
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           {
@@ -930,7 +932,7 @@ describe('SSEProvider EventSource Connection', () => {
       // Simulate URL B: in a real React app this would be a re-render with new config.
       // In SSR tests we use a fresh renderToString. currentUrlRef is module-level for
       // the component instance, so a fresh render with a different URL triggers a new connection.
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           {
@@ -948,7 +950,7 @@ describe('SSEProvider EventSource Connection', () => {
       ])
 
       // Simulate URL C
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           {
@@ -993,7 +995,7 @@ describe('SSEProvider EventSource Connection', () => {
         reconnect: { enabled: false },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: configA },
@@ -1041,7 +1043,7 @@ describe('SSEProvider EventSource Connection', () => {
       }
 
       // First render: transport throws, guard must be released
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config: configWithThrowingTransport },
@@ -1055,7 +1057,7 @@ describe('SSEProvider EventSource Connection', () => {
       // a fresh component-instance render). Verify no throw escapes.
       throwOnCreate = false
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config: configWithThrowingTransport },

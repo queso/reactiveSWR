@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+} from 'bun:test'
 import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import type { SSETransport } from '../types.ts'
@@ -118,9 +127,27 @@ function createMockTransport(): SSETransport & {
 let fetchTransportCalls: Array<{ url: string; options: unknown }> = []
 let mockFetchTransports: SSETransport[] = []
 
-// Mock createFetchTransport
+// Mock createFetchTransport.
+// mock.module replaces the module for every test file in the process, so
+// hand out the mock only while this file's tests run and the real transport
+// otherwise.
+const realFetchTransport = { ...(await import('../fetchTransport.ts')) }
+let useMockTransport = false
+beforeAll(() => {
+  useMockTransport = true
+})
+afterAll(() => {
+  useMockTransport = false
+})
 mock.module('../fetchTransport.ts', () => ({
-  createFetchTransport: (url: string, options?: unknown) => {
+  ...realFetchTransport,
+  createFetchTransport: (
+    url: string,
+    options?: Parameters<typeof realFetchTransport.createFetchTransport>[1],
+  ) => {
+    if (!useMockTransport) {
+      return realFetchTransport.createFetchTransport(url, options)
+    }
     fetchTransportCalls.push({ url, options })
     const transport = createMockTransport()
     mockFetchTransports.push(transport)

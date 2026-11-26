@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-26
+
+### Fixed
+- `mockSSE(...).sendEvent()` delivers each event once, as the named event `createChannel` sends (`event: <type>`, data is the payload). In 0.2.1 it called `onmessage` with `{ type, payload }` and also dispatched a named event carrying that same `{ type, payload }` JSON, so for a type in your schema or `events` the cache ended up holding `{ type, payload }` instead of the payload (#11)
+- The `'refetch'` update strategy revalidates without clearing the cached value. In 0.2.1 it wrote `undefined` to the cache first, so without `keepPreviousData` the screen blanked on every refetch event, and with it `isLoading` went true as if on a first load (#12)
+- `SSEProvider` keeps its connection under React StrictMode (on by default in `next dev`). In 0.2.1 StrictMode's extra effect cleanup closed the stream and nothing reopened it, and the tab-visibility reconnect listener was lost the same way. The connection now opens in an effect after mount instead of during render (#13)
+- Connections no longer leak when a child of `SSEProvider` suspends. In 0.2.1 each render attempt of a suspended tree opened a connection during render that was never closed (three on one mount in our test, six on one page load in an app) (#13)
+- Unmounting `SSEProvider` after a reconnect or a URL change closes the current connection. In 0.2.1 it closed the first connection and left the newer one open (#13)
+
+### Changed
+- **This can change a passing test.** `sendEvent` no longer calls `onmessage` on the mock `EventSource`. A test that reads events through `onmessage`, or through `useSSEEvent` for a type that is not in the provider's schema or `events`, stops receiving them, as it would against `createChannel`. If your server sends unnamed `{ type, payload }` messages, use `mockSSE(url, { eventFormat: 'unnamed' })` (#11)
+- Custom and fetch transports no longer open during server rendering. In 0.2.1 `SSEProvider` opened a custom `transport`, or the fetch transport selected by `method`, `body` or `headers`, during render, so it also ran on the server; the fetch transport called `fetch` there. Now nothing opens during server rendering for any transport. On the client the first render still reports `connecting: true`; a transport factory that throws now reports its error on the render after mount instead of the first (#13)
+- On unmount, `onDisconnect` is called only if `onConnect` was called and no `onDisconnect` has answered it yet. That includes a connection that opened and then dropped back to connecting while the browser retries. In 0.2.1 it was also called when unmounting a connection that never opened, such as the one StrictMode's extra cleanup closes, with no matching `onConnect` (#13)
+
+### Added
+- `mockSSE(url, { eventFormat: 'unnamed' })` option, and the `MockSSEOptions` and `MockEventFormat` types from `reactive-swr/testing` (#11)
+
 ## [0.2.1] - 2026-11-26
 
 ### Fixed

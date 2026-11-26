@@ -93,7 +93,7 @@ describe('mockSSE', () => {
 
   describe('sendEvent', () => {
     it('should trigger onmessage with MessageEvent containing JSON data', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const eventSource = new EventSource('/api/events')
 
       let receivedEvent: MessageEvent | null = null
@@ -133,13 +133,62 @@ describe('mockSSE', () => {
       expect(receivedEvent).not.toBeNull()
       expect(receivedEvent?.data).toBeDefined()
 
+      // A named event carries the payload alone, as createChannel writes it
       const parsedData = JSON.parse(receivedEvent?.data)
-      expect(parsedData.type).toBe('order:updated')
-      expect(parsedData.payload).toEqual({ id: '123', status: 'shipped' })
+      expect(parsedData).toEqual({ id: '123', status: 'shipped' })
+    })
+
+    it('should deliver a named event once, to its listener and not to onmessage', () => {
+      const mock = mockSSE('/api/events')
+      const eventSource = new EventSource('/api/events')
+
+      const viaOnmessage: string[] = []
+      const viaMessageListener: string[] = []
+      const viaNamedListener: string[] = []
+      eventSource.onmessage = (event: MessageEvent) => {
+        viaOnmessage.push(event.data)
+      }
+      eventSource.addEventListener('message', (event: Event) => {
+        viaMessageListener.push((event as MessageEvent).data)
+      })
+      eventSource.addEventListener('order:updated', (event: Event) => {
+        viaNamedListener.push((event as MessageEvent).data)
+      })
+
+      mock.sendEvent({ type: 'order:updated', payload: { id: '123' } })
+
+      expect(viaOnmessage).toEqual([])
+      expect(viaMessageListener).toEqual([])
+      expect(viaNamedListener).toEqual(['{"id":"123"}'])
+    })
+
+    it("should deliver eventFormat 'unnamed' once, to onmessage and message listeners only", () => {
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
+      const eventSource = new EventSource('/api/events')
+
+      const viaOnmessage: string[] = []
+      const viaMessageListener: string[] = []
+      const viaNamedListener: string[] = []
+      eventSource.onmessage = (event: MessageEvent) => {
+        viaOnmessage.push(event.data)
+      }
+      eventSource.addEventListener('message', (event: Event) => {
+        viaMessageListener.push((event as MessageEvent).data)
+      })
+      eventSource.addEventListener('order:updated', (event: Event) => {
+        viaNamedListener.push((event as MessageEvent).data)
+      })
+
+      mock.sendEvent({ type: 'order:updated', payload: { id: '123' } })
+
+      const expected = '{"type":"order:updated","payload":{"id":"123"}}'
+      expect(viaOnmessage).toEqual([expected])
+      expect(viaMessageListener).toEqual([expected])
+      expect(viaNamedListener).toEqual([])
     })
 
     it('should format event data as JSON string in MessageEvent', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const eventSource = new EventSource('/api/events')
 
       let receivedData: string | null = null
@@ -199,8 +248,8 @@ describe('mockSSE', () => {
 
   describe('multiple concurrent mocks', () => {
     it('should support mocks for different URLs independently', () => {
-      const mock1 = mockSSE('/api/events1')
-      const mock2 = mockSSE('/api/events2')
+      const mock1 = mockSSE('/api/events1', { eventFormat: 'unnamed' })
+      const mock2 = mockSSE('/api/events2', { eventFormat: 'unnamed' })
 
       const eventSource1 = new EventSource('/api/events1')
       const eventSource2 = new EventSource('/api/events2')
@@ -229,8 +278,8 @@ describe('mockSSE', () => {
     })
 
     it('should isolate sendEvent calls to correct mock', () => {
-      const mock1 = mockSSE('/api/events1')
-      const mock2 = mockSSE('/api/events2')
+      const mock1 = mockSSE('/api/events1', { eventFormat: 'unnamed' })
+      const mock2 = mockSSE('/api/events2', { eventFormat: 'unnamed' })
 
       const eventSource1 = new EventSource('/api/events1')
       const eventSource2 = new EventSource('/api/events2')
@@ -289,7 +338,7 @@ describe('mockSSE', () => {
     })
 
     it('should prevent sendEvent after restore', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const eventSource = new EventSource('/api/events')
 
       let messageCount = 0
@@ -316,7 +365,7 @@ describe('mockSSE', () => {
 
   describe('edge cases', () => {
     it('should handle sendEvent before any listeners are attached', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const eventSource = new EventSource('/api/events')
 
       // Send event before attaching listener - should not throw
@@ -352,7 +401,7 @@ describe('mockSSE', () => {
     })
 
     it('should handle complex nested payload data', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const eventSource = new EventSource('/api/events')
 
       let receivedPayload: Record<string, unknown> | null = null

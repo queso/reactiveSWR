@@ -53,7 +53,7 @@ describe('mockSSE transport-aware', () => {
     })
 
     it('should still deliver events via onmessage on EventSource', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let received: MessageEvent | null = null
@@ -343,8 +343,8 @@ describe('mockSSE transport-aware', () => {
 
   describe('multiple simultaneous mocks', () => {
     it('should support EventSource and fetch mocks for different URLs', () => {
-      const esMock = mockSSE('/api/events')
-      const fetchMock = mockSSE('/api/stream')
+      const esMock = mockSSE('/api/events', { eventFormat: 'unnamed' })
+      const fetchMock = mockSSE('/api/stream', { eventFormat: 'unnamed' })
 
       // EventSource mock works
       const es = new EventSource('/api/events')
@@ -419,7 +419,7 @@ describe('mockSSE transport-aware', () => {
 
   describe('existing test compatibility', () => {
     it('should not break existing mockSSE API - sendEvent + onmessage', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let data: string | null = null
@@ -465,7 +465,7 @@ describe('mockSSE transport-aware', () => {
     })
 
     it('should not break existing mockSSE API - restore prevents further events', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let count = 0
@@ -488,8 +488,8 @@ describe('mockSSE transport-aware', () => {
     })
 
     it('should not break existing mockSSE API - multiple URLs independently', () => {
-      const mock1 = mockSSE('/api/a')
-      const mock2 = mockSSE('/api/b')
+      const mock1 = mockSSE('/api/a', { eventFormat: 'unnamed' })
+      const mock2 = mockSSE('/api/b', { eventFormat: 'unnamed' })
 
       const es1 = new EventSource('/api/a')
       const es2 = new EventSource('/api/b')

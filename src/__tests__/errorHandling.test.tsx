@@ -1,5 +1,7 @@
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -8,8 +10,8 @@ import {
   spyOn,
 } from 'bun:test'
 import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import type { ParsedEvent, SSEConfig } from '../types.ts'
+import { cleanupDom, render } from './helpers/dom.ts'
 
 /**
  * Tests for error handling and debug mode (WI-070).
@@ -59,11 +61,23 @@ const mockMutate = mock(
   },
 )
 
-// Mock useSWRConfig to return our mock mutate
+// Mock useSWRConfig to return our mock mutate.
+// mock.module replaces 'swr' for every test file in the process, so keep the
+// real exports and hand out the mock mutate only while this file's tests run.
+const realSWR = { ...(await import('swr')) }
+let useMockMutate = false
+beforeAll(() => {
+  useMockMutate = true
+})
+afterAll(() => {
+  useMockMutate = false
+})
 mock.module('swr', () => ({
-  useSWRConfig: () => ({
-    mutate: mockMutate,
-  }),
+  ...realSWR,
+  useSWRConfig: () => {
+    const real = realSWR.useSWRConfig()
+    return useMockMutate ? { ...real, mutate: mockMutate } : real
+  },
 }))
 
 // Simple EventSource mock for testing
@@ -162,6 +176,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount first, while the globals this file installs are still in place
+  cleanupDom()
   globalThis.EventSource = originalEventSource
   debugSpy.mockRestore()
   warnSpy.mockRestore()
@@ -186,7 +202,7 @@ describe('Error Handling and Debug Mode', () => {
 
       // This should not throw
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -214,7 +230,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -252,7 +268,7 @@ describe('Error Handling and Debug Mode', () => {
       }
 
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -287,7 +303,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -324,7 +340,7 @@ describe('Error Handling and Debug Mode', () => {
       }
 
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -359,7 +375,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -395,7 +411,7 @@ describe('Error Handling and Debug Mode', () => {
       }
 
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -426,7 +442,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -471,7 +487,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -509,7 +525,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -546,7 +562,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -578,7 +594,7 @@ describe('Error Handling and Debug Mode', () => {
       }
 
       expect(() => {
-        renderToString(
+        render(
           createElement(
             SSEProvider,
             { config },
@@ -605,7 +621,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -642,7 +658,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -673,7 +689,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -706,7 +722,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -746,7 +762,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -780,7 +796,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -818,7 +834,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -864,7 +880,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -906,7 +922,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -944,7 +960,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -978,7 +994,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1008,7 +1024,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1038,7 +1054,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1069,7 +1085,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1109,7 +1125,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1148,7 +1164,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1183,7 +1199,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },
@@ -1218,7 +1234,7 @@ describe('Error Handling and Debug Mode', () => {
         },
       }
 
-      renderToString(
+      render(
         createElement(
           SSEProvider,
           { config },

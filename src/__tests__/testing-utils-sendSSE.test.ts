@@ -149,7 +149,7 @@ describe('mockSSE.sendSSE()', () => {
 
   describe('Req #33 - no breaking changes to existing methods', () => {
     it('sendEvent() should still work after sendSSE is added', () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let received: MessageEvent | null = null

@@ -94,7 +94,9 @@ function applyUpdateStrategy(
   if (strategy === 'set') {
     mutate(key, payload, { revalidate: false })
   } else if (strategy === 'refetch') {
-    mutate(key, undefined, { revalidate: true })
+    // No data argument: SWR revalidates and keeps the cached value. Passing
+    // undefined as data would write undefined to the cache first.
+    mutate(key)
   } else if (typeof strategy === 'function') {
     mutate(key, (current: unknown) => strategy(current, payload), {
       revalidate: false,
@@ -244,6 +246,16 @@ export function SSEProvider({
   const connectionGenerationRef = useRef<number>(0)
   const creatingConnectionRef = useRef<boolean>(false)
 
+  // True between an onConnect call and the onDisconnect that answers it, so
+  // the consumer is told about a disconnect exactly once for each connect
+  const disconnectOwedRef = useRef<boolean>(false)
+
+  // True once this provider has tried to connect. A provider that could not
+  // connect at mount (no EventSource, no transport) connects on the render
+  // that supplies a transport; one that has connected before does not, so a
+  // connection closed for good stays closed. See the effect after the mount effect.
+  const connectionAttemptedRef = useRef<boolean>(false)
+
   const subscribe = useCallback(
     (eventType: string, handler: (payload: unknown) => void) => {
       const subscribers = subscribersRef.current
@@ -363,6 +375,14 @@ export function SSEProvider({
   }, [])
 
   /**
+   * Whether a connection can be opened with this config: a custom or fetch
+   * transport is configured, or EventSource exists
+   */
+  const canConnect = (cfg: SSEConfig): boolean =>
+    !!(cfg.transport || needsFetchTransport(cfg)) ||
+    typeof EventSource !== 'undefined'
+
+  /**
    * Create a transport based on the current config.
    * Priority: config.transport factory > fetch transport (method/body/headers) > EventSource
    */
@@ -402,6 +422,7 @@ export function SSEProvider({
       return
     }
     creatingConnectionRef.current = true
+    connectionAttemptedRef.current = true
 
     // Increment generation so closures from any previous connection know they
     // are stale. Capture the current generation for this connection's callbacks.
@@ -489,6 +510,9 @@ export function SSEProvider({
         error: null,
         reconnectAttempt: 0,
       })
+      // A native EventSource fires onopen again after it recovers from
+      // CONNECTING; the flag is already set then and stays set
+      disconnectOwedRef.current = true
       configRef.current.onConnect?.()
     }
 
@@ -509,6 +533,7 @@ export function SSEProvider({
         updateStatus({
           connected: false,
         })
+        disconnectOwedRef.current = false
         configRef.current.onDisconnect?.()
 
         // Schedule reconnection
@@ -626,29 +651,99 @@ export function SSEProvider({
     }
   }, [createTransport, getReconnectConfig, processEvent, updateStatus])
 
-  // Initialize connection synchronously (for SSR compatibility)
-  // Also handle URL changes by creating a new connection when URL differs
-  const urlChanged =
-    currentUrlRef.current !== null &&
-    currentUrlRef.current !== resolvedConfig.url
-  // Create connection if: custom transport or fetch transport is configured, OR EventSource is available
-  const hasCustomTransport = !!(
-    resolvedConfig.transport || needsFetchTransport(resolvedConfig)
-  )
-  if (hasCustomTransport || typeof EventSource !== 'undefined') {
-    if (eventSourceRef.current === null || urlChanged) {
+  // Open the connection after mount and close it on unmount. Setup and
+  // cleanup are symmetric, so React StrictMode's extra cleanup/setup cycle
+  // ends with one open connection. Nothing opens during server rendering,
+  // because effects do not run there.
+  //
+  // The empty dependency list is deliberate: the connection lives as long as
+  // the provider. URL changes are handled by the effect below, and handlers
+  // read the latest config through configRef.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open once per mount; see above
+  useEffect(() => {
+    if (canConnect(configRef.current)) {
       createConnection()
     }
-  }
 
-  // Track visibility change handler for cleanup
-  const visibilityHandlerRef = useRef<(() => void) | null>(null)
+    // Registered even when nothing opened, because a transport supplied on a
+    // later render connects through the effect below and must close here
+    return () => {
+      // Make callbacks from the connection being closed stale, so a late
+      // onerror cannot schedule a reconnect after unmount
+      connectionGenerationRef.current += 1
 
-  // Create visibility handler if not already created
-  if (
-    visibilityHandlerRef.current === null &&
-    typeof document !== 'undefined'
-  ) {
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+
+      // Read the current connection, not the one from mount: a reconnect or
+      // URL change may have replaced it since
+      const connection = eventSourceRef.current
+      if (connection) {
+        // Remove all named event listeners
+        for (const { type, handler } of listenersRef.current) {
+          connection.removeEventListener(type, handler)
+        }
+        listenersRef.current = []
+
+        // Close the connection
+        connection.close()
+        eventSourceRef.current = null
+        currentUrlRef.current = null
+      }
+
+      // onDisconnect answers onConnect: call it if onConnect was called and
+      // onerror has not already reported the disconnect. This covers an open
+      // connection that errored back into CONNECTING (onerror reports only
+      // CLOSED), and skips one that never opened, such as the one StrictMode's
+      // extra cleanup closes right after mount.
+      if (disconnectOwedRef.current) {
+        disconnectOwedRef.current = false
+        configRef.current.onDisconnect?.()
+      }
+    }
+  }, [])
+
+  // Connect on a later render if the provider could not connect at mount
+  // (no EventSource and no transport) and a render has since supplied a
+  // custom or fetch transport.
+  //
+  // What separates this from a connection closed on purpose: a provider that
+  // has connected before (connectionAttemptedRef) never connects here. When
+  // reconnect attempts run out or reconnect.enabled is false, the closed
+  // connection stays in eventSourceRef and connectionAttemptedRef is true, so
+  // a rerender leaves it closed. After unmount cleanup the mount effect, not
+  // this one, reopens (StrictMode).
+  const canConnectNow = canConnect(resolvedConfig)
+  useEffect(() => {
+    if (
+      canConnectNow &&
+      eventSourceRef.current === null &&
+      !connectionAttemptedRef.current
+    ) {
+      createConnection()
+    }
+  }, [canConnectNow, createConnection])
+
+  // On a URL change, replace the connection with one for the new URL
+  useEffect(() => {
+    if (
+      currentUrlRef.current !== null &&
+      currentUrlRef.current !== resolvedConfig.url
+    ) {
+      createConnection()
+    }
+  }, [resolvedConfig.url, createConnection])
+
+  // Reconnect when the tab becomes visible and the connection was lost.
+  // Attached in an effect so StrictMode's cleanup/setup cycle re-attaches it.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const connection = eventSourceRef.current
@@ -685,56 +780,13 @@ export function SSEProvider({
       }
     }
 
-    visibilityHandlerRef.current = handleVisibilityChange
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-  }
-
-  // Cleanup visibility listener on unmount
-  useEffect(() => {
-    const handler = visibilityHandlerRef.current
-
+    // Remove the listener from the document it was added to
+    const doc = document
+    doc.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
-      if (handler) {
-        document.removeEventListener('visibilitychange', handler)
-        visibilityHandlerRef.current = null
-      }
+      doc.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    const connection = eventSourceRef.current
-    const listeners = listenersRef.current
-
-    return () => {
-      // Clear any pending reconnect timeout
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-        reconnectTimeoutRef.current = null
-      }
-
-      if (connection) {
-        // Check if already closed (onerror may have already called onDisconnect)
-        const wasConnected = connection.readyState !== CLOSED
-
-        // Remove all named event listeners
-        for (const { type, handler } of listeners) {
-          connection.removeEventListener(type, handler)
-        }
-        listenersRef.current = []
-
-        // Close the connection
-        connection.close()
-        eventSourceRef.current = null
-
-        // Only call onDisconnect if we were still connected
-        // (prevents double-call if onerror already called it)
-        if (wasConnected) {
-          configRef.current.onDisconnect?.()
-        }
-      }
-    }
-  }, [])
+  }, [createConnection, getReconnectConfig, updateStatus])
 
   const contextValue: SSEContextValue = {
     status,

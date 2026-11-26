@@ -744,7 +744,10 @@ Create a mock SSE connection for testing. Intercepts both the global `EventSourc
 ```typescript
 import { mockSSE } from 'reactive-swr/testing'
 
-function mockSSE(url: string): MockSSEControls
+function mockSSE(
+  url: string,
+  options?: { eventFormat?: 'named' | 'unnamed' },
+): MockSSEControls
 ```
 
 **Returns:**
@@ -768,7 +771,7 @@ interface SSEEventData {
 
 | Method | Description |
 |--------|-------------|
-| `sendEvent({ type, payload })` | Dispatch a typed event to both the `MockEventSource` (as a `MessageEvent`) and any fetch-based streams (as formatted SSE wire text). |
+| `sendEvent({ type, payload })` | Send one event to the `MockEventSource` and any fetch-based streams. By default it is a named event, `event: <type>` with the payload as data, as `createChannel` sends: it reaches `addEventListener(type)` listeners and not `onmessage`. With `{ eventFormat: 'unnamed' }` it is an unnamed message whose data is `{ type, payload }`, delivered to `onmessage` only. |
 | `sendRaw(text)` | Send raw text directly to fetch-based streams. Does not affect `EventSource` listeners. |
 | `sendSSE(data)` | Send data as `data: <json>\n\n` format to fetch-based streams. Does not affect `EventSource` listeners. |
 | `close()` | Simulate a connection close. Fires the error handler on the `MockEventSource` and closes fetch streams. |

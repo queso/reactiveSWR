@@ -948,7 +948,7 @@ test('updates order when SSE event received', async () => {
     </SSEProvider>
   )
 
-  // Simulate SSE event (dispatches to both EventSource and fetch streams)
+  // Simulate SSE event: one named event to EventSource and fetch streams
   mock.sendEvent({
     type: 'order:updated',
     payload: { id: '123', status: 'shipped' },
@@ -966,10 +966,21 @@ test('updates order when SSE event received', async () => {
 ### mockSSE API
 
 ```typescript
-function mockSSE(url: string): MockSSEControls
+function mockSSE(url: string, options?: MockSSEOptions): MockSSEControls
+
+interface MockSSEOptions {
+  /**
+   * How sendEvent frames an event. Default 'named'.
+   * - 'named': `event: <type>\ndata: <payload>`, as createChannel writes it.
+   *   Delivered to addEventListener(type) listeners only, not to onmessage.
+   * - 'unnamed': `data: {"type":...,"payload":...}` with no event field.
+   *   Delivered to onmessage and 'message' listeners only.
+   */
+  eventFormat?: 'named' | 'unnamed'
+}
 
 interface MockSSEControls {
-  /** Dispatch a typed event to both EventSource and fetch-based connections. */
+  /** Send one event, in the eventFormat form, to EventSource and fetch-based connections. */
   sendEvent: (event: { type: string; payload: unknown }) => void
 
   /** Send raw SSE wire format text to fetch-based connections. */
@@ -988,6 +999,8 @@ interface MockSSEControls {
 /** Restore original EventSource, fetch, and Request. Call in afterEach. */
 mockSSE.restore: () => void
 ```
+
+Each `sendEvent` reaches a connection once, in one form, as a real `EventSource` delivers a frame. With the default `'named'` form, `SSEProvider` receives events for the types in its `schema` or `events`, and the data is the payload. Use `eventFormat: 'unnamed'` when your server sends unnamed `{ type, payload }` messages; `SSEProvider` then parses them with `parseEvent`.
 
 `mockSSE` also patches `globalThis.Request` to support relative URLs for registered mock URLs, preventing errors in environments where `Request` requires absolute URLs.
 

@@ -354,7 +354,8 @@ export function SSEProvider({
     }
   }, [])
 
-  // readyState constant for CLOSED (works for both EventSource and SSETransport)
+  // readyState constants (work for both EventSource and SSETransport)
+  const OPEN = 1
   const CLOSED = 2
 
   /**
@@ -628,29 +629,81 @@ export function SSEProvider({
     }
   }, [createTransport, getReconnectConfig, processEvent, updateStatus])
 
-  // Initialize connection synchronously (for SSR compatibility)
-  // Also handle URL changes by creating a new connection when URL differs
-  const urlChanged =
-    currentUrlRef.current !== null &&
-    currentUrlRef.current !== resolvedConfig.url
-  // Create connection if: custom transport or fetch transport is configured, OR EventSource is available
-  const hasCustomTransport = !!(
-    resolvedConfig.transport || needsFetchTransport(resolvedConfig)
-  )
-  if (hasCustomTransport || typeof EventSource !== 'undefined') {
-    if (eventSourceRef.current === null || urlChanged) {
+  // Open the connection after mount and close it on unmount. Setup and
+  // cleanup are symmetric, so React StrictMode's extra cleanup/setup cycle
+  // ends with one open connection. Nothing opens during server rendering,
+  // because effects do not run there.
+  //
+  // The empty dependency list is deliberate: the connection lives as long as
+  // the provider. URL changes are handled by the effect below, and handlers
+  // read the latest config through configRef.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open once per mount; see above
+  useEffect(() => {
+    // Connect if a custom or fetch transport is configured, or EventSource exists
+    const cfg = configRef.current
+    const hasCustomTransport = !!(cfg.transport || needsFetchTransport(cfg))
+    if (!hasCustomTransport && typeof EventSource === 'undefined') {
+      return
+    }
+
+    createConnection()
+
+    return () => {
+      // Make callbacks from the connection being closed stale, so a late
+      // onerror cannot schedule a reconnect after unmount
+      connectionGenerationRef.current += 1
+
+      // Clear any pending reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+
+      // Read the current connection, not the one from mount: a reconnect or
+      // URL change may have replaced it since
+      const connection = eventSourceRef.current
+      if (connection) {
+        // onDisconnect pairs with onConnect: call it only for a connection
+        // that is open. A closed one already reported through onerror, and
+        // one still CONNECTING (such as the one StrictMode's extra cleanup
+        // closes right after mount) never called onConnect.
+        const wasConnected = connection.readyState === OPEN
+
+        // Remove all named event listeners
+        for (const { type, handler } of listenersRef.current) {
+          connection.removeEventListener(type, handler)
+        }
+        listenersRef.current = []
+
+        // Close the connection
+        connection.close()
+        eventSourceRef.current = null
+        currentUrlRef.current = null
+
+        if (wasConnected) {
+          configRef.current.onDisconnect?.()
+        }
+      }
+    }
+  }, [])
+
+  // On a URL change, replace the connection with one for the new URL
+  useEffect(() => {
+    if (
+      currentUrlRef.current !== null &&
+      currentUrlRef.current !== resolvedConfig.url
+    ) {
       createConnection()
     }
-  }
+  }, [resolvedConfig.url, createConnection])
 
-  // Track visibility change handler for cleanup
-  const visibilityHandlerRef = useRef<(() => void) | null>(null)
+  // Reconnect when the tab becomes visible and the connection was lost.
+  // Attached in an effect so StrictMode's cleanup/setup cycle re-attaches it.
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return
+    }
 
-  // Create visibility handler if not already created
-  if (
-    visibilityHandlerRef.current === null &&
-    typeof document !== 'undefined'
-  ) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const connection = eventSourceRef.current
@@ -687,56 +740,13 @@ export function SSEProvider({
       }
     }
 
-    visibilityHandlerRef.current = handleVisibilityChange
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-  }
-
-  // Cleanup visibility listener on unmount
-  useEffect(() => {
-    const handler = visibilityHandlerRef.current
-
+    // Remove the listener from the document it was added to
+    const doc = document
+    doc.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
-      if (handler) {
-        document.removeEventListener('visibilitychange', handler)
-        visibilityHandlerRef.current = null
-      }
+      doc.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    const connection = eventSourceRef.current
-    const listeners = listenersRef.current
-
-    return () => {
-      // Clear any pending reconnect timeout
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current)
-        reconnectTimeoutRef.current = null
-      }
-
-      if (connection) {
-        // Check if already closed (onerror may have already called onDisconnect)
-        const wasConnected = connection.readyState !== CLOSED
-
-        // Remove all named event listeners
-        for (const { type, handler } of listeners) {
-          connection.removeEventListener(type, handler)
-        }
-        listenersRef.current = []
-
-        // Close the connection
-        connection.close()
-        eventSourceRef.current = null
-
-        // Only call onDisconnect if we were still connected
-        // (prevents double-call if onerror already called it)
-        if (wasConnected) {
-          configRef.current.onDisconnect?.()
-        }
-      }
-    }
-  }, [])
+  }, [createConnection, getReconnectConfig, updateStatus])
 
   const contextValue: SSEContextValue = {
     status,

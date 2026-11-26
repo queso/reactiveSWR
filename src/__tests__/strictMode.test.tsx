@@ -283,6 +283,152 @@ describe('SSEProvider connection lifecycle (#13)', () => {
     })
   })
 
+  describe('onDisconnect pairing', () => {
+    it('is called once on unmount after an open connection errors into CONNECTING', async () => {
+      let connects = 0
+      let disconnects = 0
+      const { unmount } = render(
+        provider(
+          {
+            url: '/events',
+            events: {},
+            onConnect: () => {
+              connects++
+            },
+            onDisconnect: () => {
+              disconnects++
+            },
+          },
+          false,
+        ),
+      )
+      const es = MockEventSource.instances[0]
+      await flush(() => {
+        es?.simulateOpen()
+        // A recoverable failure: the browser goes back to CONNECTING and retries
+        if (es) {
+          es.readyState = 0
+          es.onerror?.(new Event('error'))
+        }
+      })
+      expect(connects).toBe(1)
+      expect(disconnects).toBe(0)
+
+      unmount()
+
+      expect(disconnects).toBe(1)
+    })
+
+    it('is not called again on unmount after onerror already reported the close', async () => {
+      let disconnects = 0
+      const { unmount } = render(
+        provider(
+          {
+            url: '/events',
+            events: {},
+            reconnect: { enabled: false },
+            onDisconnect: () => {
+              disconnects++
+            },
+          },
+          false,
+        ),
+      )
+      const es = MockEventSource.instances[0]
+      await flush(() => {
+        es?.simulateOpen()
+        if (es) {
+          es.readyState = 2
+          es.onerror?.(new Event('error'))
+        }
+      })
+      expect(disconnects).toBe(1)
+
+      unmount()
+
+      expect(disconnects).toBe(1)
+    })
+  })
+
+  describe('a transport that becomes available after mount', () => {
+    it('connects on the render that supplies it', () => {
+      // @ts-expect-error - no EventSource, as on a server or an old runtime
+      globalThis.EventSource = undefined
+      const transports: Array<SSETransport & { closed: boolean }> = []
+      const makeTransport = () => {
+        const t = {
+          readyState: 0,
+          closed: false,
+          onmessage: null,
+          onerror: null,
+          onopen: null,
+          close() {
+            t.closed = true
+            t.readyState = 2
+          },
+          addEventListener() {},
+          removeEventListener() {},
+        }
+        transports.push(t)
+        return t
+      }
+      let supply: () => void = () => {}
+      function Host() {
+        const [withTransport, setWithTransport] = useState(false)
+        supply = () => setWithTransport(true)
+        const config: SSEConfig = withTransport
+          ? { url: '/events', events: {}, transport: makeTransport }
+          : { url: '/events', events: {} }
+        return createElement(SSEProvider, { config }, createElement('div'))
+      }
+      const { unmount } = render(createElement(Host))
+      expect(transports.length).toBe(0)
+
+      actSync(() => supply())
+
+      expect(transports.length).toBe(1)
+
+      unmount()
+
+      expect(transports[0]?.closed).toBe(true)
+    })
+
+    for (const reconnect of [
+      { enabled: true, maxAttempts: 1 },
+      { enabled: false },
+    ]) {
+      it(`does not reopen a connection closed for good on a rerender (reconnect ${JSON.stringify(reconnect)})`, async () => {
+        let bump: () => void = () => {}
+        function Host() {
+          const [n, setN] = useState(0)
+          bump = () => setN((v) => v + 1)
+          return createElement(
+            SSEProvider,
+            { config: { url: '/events', events: {}, reconnect } },
+            createElement('div', null, String(n)),
+          )
+        }
+        render(createElement(Host))
+        const es = MockEventSource.instances[0]
+        await flush(() => {
+          es?.simulateOpen()
+          if (es) {
+            es.readyState = 2
+            es.onerror?.(new Event('error'))
+          }
+        })
+        await flush(() => new Promise((resolve) => setTimeout(resolve, 20)))
+        expect(MockEventSource.instances.length).toBe(1)
+
+        actSync(() => bump())
+        await flush(() => new Promise((resolve) => setTimeout(resolve, 20)))
+
+        expect(MockEventSource.instances.length).toBe(1)
+        expect(MockEventSource.open().length).toBe(0)
+      })
+    }
+  })
+
   describe('Suspense', () => {
     it('does not leak connections when a child suspends', async () => {
       const schema = defineSchema({

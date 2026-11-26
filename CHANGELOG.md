@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - **This can change a passing test.** `sendEvent` no longer calls `onmessage` on the mock `EventSource`. A test that reads events through `onmessage`, or through `useSSEEvent` for a type that is not in the provider's schema or `events`, stops receiving them, as it would against `createChannel`. If your server sends unnamed `{ type, payload }` messages, use `mockSSE(url, { eventFormat: 'unnamed' })` (#11)
 - Custom and fetch transports no longer open during server rendering. In 0.2.1 `SSEProvider` opened a custom `transport`, or the fetch transport selected by `method`, `body` or `headers`, during render, so it also ran on the server; the fetch transport called `fetch` there. Now nothing opens during server rendering for any transport. On the client the first render still reports `connecting: true`; a transport factory that throws now reports its error on the render after mount instead of the first (#13)
-- `onDisconnect` on unmount is called only if the connection had opened. In 0.2.1 it was also called when unmounting while still connecting, without a matching `onConnect` (#13)
+- On unmount, `onDisconnect` is called only if `onConnect` was called and no `onDisconnect` has answered it yet. That includes a connection that opened and then dropped back to connecting while the browser retries. In 0.2.1 it was also called when unmounting a connection that never opened, such as the one StrictMode's extra cleanup closes, with no matching `onConnect` (#13)
 
 ### Added
 - `mockSSE(url, { eventFormat: 'unnamed' })` option, and the `MockSSEOptions` and `MockEventFormat` types from `reactive-swr/testing` (#11)

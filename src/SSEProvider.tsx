@@ -246,6 +246,16 @@ export function SSEProvider({
   const connectionGenerationRef = useRef<number>(0)
   const creatingConnectionRef = useRef<boolean>(false)
 
+  // True between an onConnect call and the onDisconnect that answers it, so
+  // the consumer is told about a disconnect exactly once for each connect
+  const disconnectOwedRef = useRef<boolean>(false)
+
+  // True once this provider has tried to connect. A provider that could not
+  // connect at mount (no EventSource, no transport) connects on the render
+  // that supplies a transport; one that has connected before does not, so a
+  // connection closed for good stays closed. See the effect after the mount effect.
+  const connectionAttemptedRef = useRef<boolean>(false)
+
   const subscribe = useCallback(
     (eventType: string, handler: (payload: unknown) => void) => {
       const subscribers = subscribersRef.current
@@ -354,8 +364,7 @@ export function SSEProvider({
     }
   }, [])
 
-  // readyState constants (work for both EventSource and SSETransport)
-  const OPEN = 1
+  // readyState constant for CLOSED (works for both EventSource and SSETransport)
   const CLOSED = 2
 
   /**
@@ -364,6 +373,14 @@ export function SSEProvider({
   const needsFetchTransport = useCallback((cfg: SSEConfig): boolean => {
     return !!(cfg.method || cfg.body || cfg.headers)
   }, [])
+
+  /**
+   * Whether a connection can be opened with this config: a custom or fetch
+   * transport is configured, or EventSource exists
+   */
+  const canConnect = (cfg: SSEConfig): boolean =>
+    !!(cfg.transport || needsFetchTransport(cfg)) ||
+    typeof EventSource !== 'undefined'
 
   /**
    * Create a transport based on the current config.
@@ -405,6 +422,7 @@ export function SSEProvider({
       return
     }
     creatingConnectionRef.current = true
+    connectionAttemptedRef.current = true
 
     // Increment generation so closures from any previous connection know they
     // are stale. Capture the current generation for this connection's callbacks.
@@ -492,6 +510,9 @@ export function SSEProvider({
         error: null,
         reconnectAttempt: 0,
       })
+      // A native EventSource fires onopen again after it recovers from
+      // CONNECTING; the flag is already set then and stays set
+      disconnectOwedRef.current = true
       configRef.current.onConnect?.()
     }
 
@@ -512,6 +533,7 @@ export function SSEProvider({
         updateStatus({
           connected: false,
         })
+        disconnectOwedRef.current = false
         configRef.current.onDisconnect?.()
 
         // Schedule reconnection
@@ -639,15 +661,12 @@ export function SSEProvider({
   // read the latest config through configRef.
   // biome-ignore lint/correctness/useExhaustiveDependencies: open once per mount; see above
   useEffect(() => {
-    // Connect if a custom or fetch transport is configured, or EventSource exists
-    const cfg = configRef.current
-    const hasCustomTransport = !!(cfg.transport || needsFetchTransport(cfg))
-    if (!hasCustomTransport && typeof EventSource === 'undefined') {
-      return
+    if (canConnect(configRef.current)) {
+      createConnection()
     }
 
-    createConnection()
-
+    // Registered even when nothing opened, because a transport supplied on a
+    // later render connects through the effect below and must close here
     return () => {
       // Make callbacks from the connection being closed stale, so a late
       // onerror cannot schedule a reconnect after unmount
@@ -663,12 +682,6 @@ export function SSEProvider({
       // URL change may have replaced it since
       const connection = eventSourceRef.current
       if (connection) {
-        // onDisconnect pairs with onConnect: call it only for a connection
-        // that is open. A closed one already reported through onerror, and
-        // one still CONNECTING (such as the one StrictMode's extra cleanup
-        // closes right after mount) never called onConnect.
-        const wasConnected = connection.readyState === OPEN
-
         // Remove all named event listeners
         for (const { type, handler } of listenersRef.current) {
           connection.removeEventListener(type, handler)
@@ -679,13 +692,40 @@ export function SSEProvider({
         connection.close()
         eventSourceRef.current = null
         currentUrlRef.current = null
+      }
 
-        if (wasConnected) {
-          configRef.current.onDisconnect?.()
-        }
+      // onDisconnect answers onConnect: call it if onConnect was called and
+      // onerror has not already reported the disconnect. This covers an open
+      // connection that errored back into CONNECTING (onerror reports only
+      // CLOSED), and skips one that never opened, such as the one StrictMode's
+      // extra cleanup closes right after mount.
+      if (disconnectOwedRef.current) {
+        disconnectOwedRef.current = false
+        configRef.current.onDisconnect?.()
       }
     }
   }, [])
+
+  // Connect on a later render if the provider could not connect at mount
+  // (no EventSource and no transport) and a render has since supplied a
+  // custom or fetch transport.
+  //
+  // What separates this from a connection closed on purpose: a provider that
+  // has connected before (connectionAttemptedRef) never connects here. When
+  // reconnect attempts run out or reconnect.enabled is false, the closed
+  // connection stays in eventSourceRef and connectionAttemptedRef is true, so
+  // a rerender leaves it closed. After unmount cleanup the mount effect, not
+  // this one, reopens (StrictMode).
+  const canConnectNow = canConnect(resolvedConfig)
+  useEffect(() => {
+    if (
+      canConnectNow &&
+      eventSourceRef.current === null &&
+      !connectionAttemptedRef.current
+    ) {
+      createConnection()
+    }
+  }, [canConnectNow, createConnection])
 
   // On a URL change, replace the connection with one for the new URL
   useEffect(() => {

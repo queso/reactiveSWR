@@ -2,8 +2,19 @@
 import { formatSSEEvent } from '../sseParser'
 import type { SSEAdapter } from './adapters/types.ts'
 
+// The schema builder, so a server file needs one import. The package root also
+// exports it, but the root loads swr's hooks, which a Next.js route handler
+// cannot import.
+export { defineSchema } from '../schema.ts'
 // SSE formatting helpers — server-side only
 export { formatSSEData, formatSSEEvent } from '../sseParser'
+export type {
+  ResourceDefinition,
+  ResourceOperationDefinition,
+  SchemaDefinition,
+  SchemaEventDefinition,
+  SchemaResult,
+} from '../types.ts'
 export { createEmitterAdapter } from './adapters/emitter.ts'
 export { createMongoAdapter } from './adapters/mongodb.ts'
 export { createPgAdapter } from './adapters/pg.ts'

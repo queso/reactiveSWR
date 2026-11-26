@@ -27,5 +27,13 @@ jobs:
       - name: Test
         run: bun test
 
+      # 0.2.0 was published from a shell with NODE_ENV=development, which made
+      # bun emit the development JSX runtime. Build under that value on purpose:
+      # the build script must pin production itself, and check-dist fails if not.
       - name: Build
         run: bun run build
+        env:
+          NODE_ENV: development
+
+      - name: Next.js build check
+        run: bun run check:next

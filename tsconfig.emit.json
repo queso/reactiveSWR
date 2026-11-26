@@ -8,6 +8,7 @@
   },
   "include": [
     "src/index.ts",
+    "src/schema.ts",
     "src/testing/index.ts",
     "src/server/index.ts",
     "src/server/adapters",

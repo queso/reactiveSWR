@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-26
+
+### Fixed
+- The published client bundle no longer uses the development JSX runtime. 0.2.0 imported `jsxDEV` from `react/jsx-dev-runtime`, which production React leaves undefined, so `SSEProvider` crashed in production builds (`jsxDEV is not a function`) and failed `next build` while prerendering. The build now pins `NODE_ENV=production` (#6)
+- `defineSchema` can be imported in a Next.js App Router route handler. In 0.2.0 it was exported only from the package root, which loads SWR's hooks, and the route handler build failed with `The export useSWRConfig was not found` (#7)
+
+### Added
+- `reactive-swr/schema` entry point with `defineSchema` and the schema types. It loads no React or SWR code (#7)
+- `defineSchema` and the schema types re-exported from `reactive-swr/server` (#7)
+- `scripts/check-dist.ts`, run at the end of `bun run build`: fails when a built file uses the development JSX runtime, when a `package.json` export points at a file that was not built, or when `dist/schema.js` or anything under `dist/server/` imports `react` or `swr` (#6, #7)
+- `bun run check:next`: packs the package and runs `next build` on `fixtures/next-app` (a route handler that imports the schema and `createChannel`, and a client page that renders `SSEProvider`). Runs in CI (#6, #7)
+
+### Changed
+- `typescript` is a dev dependency. The build and typecheck used whichever `tsc` was on the machine before
+
 ## [0.2.0] - 2026-03-04
 
 ### Added

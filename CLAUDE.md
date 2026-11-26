@@ -10,6 +10,8 @@ src/              # Source code
   SSEProvider.tsx # Provider component
   hooks/          # React hooks
   types.ts        # TypeScript types
+scripts/          # Build checks (check-dist.ts, check-next-build.sh)
+fixtures/         # next-app: a Next.js app that must pass `next build` against the packed package
 docs/             # Documentation
   SPEC.md         # Technical specification
 prd/              # Product requirement documents
@@ -23,6 +25,8 @@ bun run dev       # Start development
 bun test          # Run unit tests
 bun run lint      # Run linter
 bun run test:e2e  # Run E2E tests
+bun run build     # Build dist, then check it (scripts/check-dist.ts)
+bun run check:next # Pack the build and run `next build` on fixtures/next-app
 ```
 
 ## A(i)-Team Integration

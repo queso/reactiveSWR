@@ -15,7 +15,7 @@ Building real-time UIs typically requires:
 reactiveSWR provides a declarative bridge between SSE events and SWR's cache. Define a shared schema once, and your components just use normal `useSWR` hooks -- they automatically receive real-time updates without knowing about SSE.
 
 ```typescript
-import { defineSchema } from 'reactive-swr'
+import { defineSchema } from 'reactive-swr/schema'
 
 // Define your schema once -- shared by server and client
 const schema = defineSchema({
@@ -50,7 +50,7 @@ npm install reactive-swr swr
 
 ```typescript
 // schema.ts
-import { defineSchema } from 'reactive-swr'
+import { defineSchema } from 'reactive-swr/schema'
 
 export const schema = defineSchema({
   'user:updated': {
@@ -63,6 +63,8 @@ export const schema = defineSchema({
   },
 })
 ```
+
+Import `defineSchema` from `reactive-swr/schema` in any file a server loads. That entry has no React or SWR code in it, so it works in a Next.js route handler, where the package root (`reactive-swr`) cannot be imported. `reactive-swr/server` re-exports `defineSchema` too, and the package root still exports it for client-only code.
 
 ### 2. Server: create an SSE channel
 
@@ -116,7 +118,7 @@ The recommended approach is to define a shared schema that drives both server-si
 `defineSchema()` creates a frozen, type-safe schema object. Event names are preserved as string literals for full TypeScript autocomplete on both sides.
 
 ```typescript
-import { defineSchema } from 'reactive-swr'
+import { defineSchema } from 'reactive-swr/schema'
 
 const schema = defineSchema({
   'user:updated': {

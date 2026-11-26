@@ -239,10 +239,18 @@ function defineSchema<T extends SchemaDefinition>(
 ): SchemaResult<T>
 ```
 
+**Where to import it from:**
+
+| Entry | Use it in |
+|---|---|
+| `reactive-swr/schema` | The shared schema file. Loads no React or SWR code, so a server file can import it, including a Next.js App Router route handler. Also exports the schema types. |
+| `reactive-swr/server` | Server files that already import `createChannel`. |
+| `reactive-swr` | Client-only code. A Next.js route handler cannot import the package root, because the root loads SWR's hooks. |
+
 **Usage:**
 
 ```typescript
-import { defineSchema } from 'reactive-swr'
+import { defineSchema } from 'reactive-swr/schema'
 
 const schema = defineSchema({
   'user.updated': {

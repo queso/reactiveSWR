@@ -94,7 +94,9 @@ function applyUpdateStrategy(
   if (strategy === 'set') {
     mutate(key, payload, { revalidate: false })
   } else if (strategy === 'refetch') {
-    mutate(key, undefined, { revalidate: true })
+    // No data argument: SWR revalidates and keeps the cached value. Passing
+    // undefined as data would write undefined to the cache first.
+    mutate(key)
   } else if (typeof strategy === 'function') {
     mutate(key, (current: unknown) => strategy(current, payload), {
       revalidate: false,

@@ -695,9 +695,9 @@ test('updates order when SSE event received', async () => {
 ### mockSSE API
 
 ```typescript
-const mock = mockSSE(url: string)
+const mock = mockSSE(url: string, options?: { eventFormat?: 'named' | 'unnamed' })
 
-mock.sendEvent({ type: string, payload: unknown })  // Send a typed event
+mock.sendEvent({ type: string, payload: unknown })  // Send one event (named by default, see below)
 mock.sendSSE(data: unknown)                          // Send data as SSE wire format — data: <json>\n\n (convenience for createSSEParser tests)
 mock.sendRaw(text: string)                           // Send raw SSE wire format
 mock.close()                                         // Simulate connection close
@@ -705,6 +705,8 @@ mock.getConnection()                                 // Get the mock EventSource
 
 mockSSE.restore()                                    // Restore real EventSource and fetch
 ```
+
+`sendEvent` sends what `createChannel` sends: a named event (`event: <type>`) whose data is the payload. A real `EventSource` delivers that to `addEventListener(type)` listeners and not to `onmessage`, so `SSEProvider` receives it for the types in its `schema` or `events`. If your server sends unnamed `{ type, payload }` messages instead, pass `{ eventFormat: 'unnamed' }`: each event then goes to `onmessage` once with `{ type, payload }` as its data.
 
 `sendSSE(data)` is a convenience wrapper that formats `data` as `data: <json>\n\n` and sends it via `sendRaw()`. It simplifies tests for consumers using `createSSEParser` who work with raw SSE wire format.
 

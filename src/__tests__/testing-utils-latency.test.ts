@@ -64,7 +64,7 @@ describe('mockSSE setLatency()', () => {
 
   describe('sendEvent delay', () => {
     it('should delay sendEvent by roughly the specified milliseconds', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let received = false
@@ -88,7 +88,7 @@ describe('mockSSE setLatency()', () => {
     })
 
     it('should not delay sendEvent when latency is 0', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let received = false
@@ -107,7 +107,7 @@ describe('mockSSE setLatency()', () => {
     })
 
     it('should deliver the correct event data after delay', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let receivedData: Record<string, unknown> | null = null
@@ -178,7 +178,7 @@ describe('mockSSE setLatency()', () => {
 
   describe('resetting latency', () => {
     it('should stop delaying after setLatency(0) is called', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let count = 0
@@ -199,7 +199,7 @@ describe('mockSSE setLatency()', () => {
     })
 
     it('should stop delaying after resetLatency() is called', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let count = 0
@@ -220,7 +220,7 @@ describe('mockSSE setLatency()', () => {
     })
 
     it('should apply the most recently set latency value', async () => {
-      const mock = mockSSE('/api/events')
+      const mock = mockSSE('/api/events', { eventFormat: 'unnamed' })
       const es = new EventSource('/api/events')
 
       let received = false
@@ -271,8 +271,8 @@ describe('mockSSE setLatency()', () => {
 
   describe('latency isolation between instances', () => {
     it('should not share latency state between different mockSSE instances', async () => {
-      const mock1 = mockSSE('/api/events1')
-      const mock2 = mockSSE('/api/events2')
+      const mock1 = mockSSE('/api/events1', { eventFormat: 'unnamed' })
+      const mock2 = mockSSE('/api/events2', { eventFormat: 'unnamed' })
 
       const es1 = new EventSource('/api/events1')
       const es2 = new EventSource('/api/events2')
@@ -299,8 +299,8 @@ describe('mockSSE setLatency()', () => {
     })
 
     it('setting latency on one instance should not affect another', async () => {
-      const mock1 = mockSSE('/api/eventsA')
-      const mock2 = mockSSE('/api/eventsB')
+      const mock1 = mockSSE('/api/eventsA', { eventFormat: 'unnamed' })
+      const mock2 = mockSSE('/api/eventsB', { eventFormat: 'unnamed' })
 
       mock1.setLatency(500)
 

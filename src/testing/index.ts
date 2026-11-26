@@ -11,6 +11,22 @@ interface SSEEventData {
   payload: unknown
 }
 
+/**
+ * How `sendEvent` frames an event on the wire.
+ *
+ * - `'named'` (default): `event: <type>\ndata: <payload>`, the frame
+ *   `createChannel` writes. A real EventSource delivers it to
+ *   `addEventListener(type)` listeners only, never to `onmessage`.
+ * - `'unnamed'`: `data: {"type":...,"payload":...}` with no event field, for
+ *   servers that send that form. Delivered to `onmessage` and `message`
+ *   listeners only, and parsed by SSEProvider's default `parseEvent`.
+ */
+type MockEventFormat = 'named' | 'unnamed'
+
+interface MockSSEOptions {
+  eventFormat?: MockEventFormat
+}
+
 interface MockSSEControls {
   sendEvent: (event: SSEEventData) => Promise<void>
   sendRaw: (text: string) => Promise<void>
@@ -87,27 +103,36 @@ class MockEventSource {
     this.disposed = true
   }
 
-  /** Internal: dispatch a message event from mock controls */
-  _dispatchMessage(data: SSEEventData): void {
+  /**
+   * Internal: deliver an event the way a real EventSource delivers one frame.
+   *
+   * A `named` event goes to `addEventListener(type)` listeners with the
+   * payload as its data. An `unnamed` event goes to `onmessage` and
+   * `message` listeners with `{type, payload}` as its data. Each frame is
+   * delivered once, in one of those forms, never both.
+   */
+  _dispatchMessage(
+    data: SSEEventData,
+    format: MockEventFormat = 'named',
+  ): void {
     if (this.disposed) return
 
-    const jsonData = JSON.stringify(data)
-    const messageEvent = new MessageEvent('message', {
-      data: jsonData,
+    const eventType = format === 'named' ? data.type : 'message'
+    const event = new MessageEvent(eventType, {
+      data:
+        format === 'named'
+          ? JSON.stringify(data.payload)
+          : JSON.stringify({ type: data.type, payload: data.payload }),
       origin: '',
       lastEventId: '',
     })
 
-    if (this.onmessage) {
-      this.onmessage(messageEvent)
+    // `event: message` is the same as no event field: onmessage sees it too
+    if (eventType === 'message' && this.onmessage) {
+      this.onmessage(event)
     }
 
-    const namedEvent = new MessageEvent(data.type, {
-      data: jsonData,
-      origin: '',
-      lastEventId: '',
-    })
-    this.dispatchEvent(namedEvent)
+    this.dispatchEvent(event)
   }
 
   /** Internal: simulate connection error/close */
@@ -289,12 +314,19 @@ class MockRegistry {
     return Promise.resolve(response)
   }
 
-  sendEventToFetchStreams(url: string, event: SSEEventData): void {
+  sendEventToFetchStreams(
+    url: string,
+    event: SSEEventData,
+    format: MockEventFormat = 'named',
+  ): void {
     const entries = this.fetchStreams.get(url)
     if (!entries) return
 
     const encoder = new TextEncoder()
-    const sseText = formatSSEEvent(event.type, event.payload)
+    const sseText =
+      format === 'named'
+        ? formatSSEEvent(event.type, event.payload)
+        : formatSSEData({ type: event.type, payload: event.payload })
     const chunk = encoder.encode(sseText)
 
     for (const entry of entries) {
@@ -353,17 +385,18 @@ const mockRegistry = new MockRegistry()
  * mockSSE.restore()
  * ```
  */
-function mockSSE(url: string): MockSSEControls {
+function mockSSE(url: string, options: MockSSEOptions = {}): MockSSEControls {
   mockRegistry.install()
   mockRegistry.registerUrl(url)
 
+  const format = options.eventFormat ?? 'named'
   let latencyMs = 0
 
   function dispatchEvent(event: SSEEventData): void {
     if (mockRegistry.isRestored()) return
     const instance = mockRegistry.getInstance(url)
-    instance?._dispatchMessage(event)
-    mockRegistry.sendEventToFetchStreams(url, event)
+    instance?._dispatchMessage(event, format)
+    mockRegistry.sendEventToFetchStreams(url, event, format)
   }
 
   function dispatchRaw(text: string): void {
@@ -444,4 +477,4 @@ mockSSE.restore = (): void => {
 }
 
 export { mockSSE }
-export type { MockSSEControls, SSEEventData }
+export type { MockEventFormat, MockSSEControls, MockSSEOptions, SSEEventData }

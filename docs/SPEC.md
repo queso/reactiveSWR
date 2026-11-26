@@ -810,7 +810,7 @@ const config: SSEConfig = {
 ### Schema-Driven Type Safety
 
 ```typescript
-import { defineSchema } from 'reactive-swr'
+import { defineSchema } from 'reactive-swr/schema'
 import { createChannel } from 'reactive-swr/server'
 
 // Shared schema -- single source of truth

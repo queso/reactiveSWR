@@ -5,6 +5,17 @@ import type {
   SchemaResult,
 } from './types.ts'
 
+// The schema entry (`reactive-swr/schema`) carries its own types, so a server
+// file that cannot import the package root still gets a typed schema.
+export type {
+  ResourceDefinition,
+  ResourceOperationDefinition,
+  SchemaDefinition,
+  SchemaEventDefinition,
+  SchemaResult,
+  UpdateStrategy,
+} from './types.ts'
+
 const RESOURCE_OPS = ['created', 'updated', 'deleted'] as const
 type ResourceOp = (typeof RESOURCE_OPS)[number]
 

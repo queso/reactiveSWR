@@ -1,0 +1,20 @@
+{
+  "name": "reactive-swr-next-fixture",
+  "private": true,
+  "description": "Not an example app. A build check: `next build` here must pass against the packed reactive-swr tarball. See scripts/check-next-build.sh.",
+  "scripts": {
+    "build": "next build"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "swr": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.9"
+  }
+}

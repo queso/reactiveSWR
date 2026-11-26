@@ -1,6 +1,6 @@
 {
   "name": "reactive-swr",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Meteor-style reactivity for React using SWR and Server-Sent Events",
   "module": "src/index.ts",
   "type": "module",
@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema.js",
+      "types": "./dist/schema.d.ts"
     },
     "./testing": {
       "import": "./dist/testing/index.js",
@@ -52,7 +56,9 @@
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts src/testing/index.ts src/server/index.ts src/server/adapters/prisma.ts src/server/adapters/mongodb.ts src/server/adapters/pg.ts src/server/adapters/emitter.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json",
+    "build": "NODE_ENV=production bun build src/index.ts src/schema.ts src/testing/index.ts src/server/index.ts src/server/adapters/prisma.ts src/server/adapters/mongodb.ts src/server/adapters/pg.ts src/server/adapters/emitter.ts --outdir dist --target browser --external react --external react-dom --external swr && tsc --project tsconfig.emit.json && bun run check:dist",
+    "check:dist": "bun scripts/check-dist.ts",
+    "check:next": "bash scripts/check-next-build.sh",
     "prepare": "bun run build",
     "test": "bun test",
     "test:e2e": "bunx playwright test",
@@ -66,7 +72,8 @@
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "typescript": "^5.9"
   },
   "peerDependencies": {
     "react": "^18 || ^19",
